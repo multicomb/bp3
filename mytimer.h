@@ -12,7 +12,7 @@ inline double get_wtime(){
 }
 
 typedef unsigned long long TIMERout;
-inline double TIMERcvt(const TIMERout val)
+inline static double TIMERcvt(const TIMERout val)
 {
   return (double)val*1.0e-9;
 }
@@ -58,21 +58,12 @@ class StringHash
     operator unsigned int() const {return m_hash;}
 };
 
-#if 1
 struct TimerT
 {
   private:
 
-    enum {NMAX = 100};
-
-    struct TimeVar
-    {
-      unsigned long long val;
-
-      unsigned long long operator()() const {return val; }
-      TimeVar(const unsigned long long _val = 0) : val(_val) {}
-      unsigned long long operator+=(const unsigned long long x) {val += x;}
-    };
+    enum {NMAX = 100};   /* maximal number of counters */
+    typedef unsigned long long Ttype;
 
     struct Int0
     {
@@ -81,8 +72,8 @@ struct TimerT
       Int0(const int _val = -1) : val(_val) {}
     };
 
-    unsigned long long initial;
-    unsigned long long elapsed;
+    Ttype initial;
+    Ttype elapsed;
     const char* name;
     const char* nameCnt[NMAX];
 
@@ -90,29 +81,7 @@ struct TimerT
 
     int nCnt;
     Map hash2idx;
-    unsigned long long stamps_beg[NMAX], stamps_end[NMAX], stamps_lapse[NMAX];
-
-    inline static unsigned long long TIMER()
-    {
-      unsigned int low,high;
-      __asm__ __volatile__("rdtsc" : "=a" (low), "=d" (high));
-      unsigned long long count = (unsigned long long)low + (((unsigned long long) high)<<32);
-      return count;
-    }
-    inline static double cvt(const unsigned long long val) { return (double)val * 1.0e-9; }
-
-  public:
-    TimerT(const char* _name) : name(_name), elapsed(0), nCnt(0) { initial = TIMER(); }
-    void start() { initial = TIMER(); elapsed = 0; nCnt = 0;}
-    unsigned long long stop () 
-    { 
-      if (elapsed == 0)
-        elapsed = TIMER() - initial; return elapsed; 
-    }
-    void clear() 
-    { 
-      hash2idx.clear(); 
-    }
+    Ttype stamps_beg[NMAX], stamps_end[NMAX], stamps_lapse[NMAX];
 
     template<const bool FAILCHECK, const int N>
       int string2idx(const char (&tag)[N])
@@ -129,6 +98,19 @@ struct TimerT
         return idx;
       }
 
+  public:
+    TimerT(const char* _name) : name(_name), elapsed(0), nCnt(0) { initial = TIMER(); }
+    void start() { initial = TIMER(); elapsed = 0; nCnt = 0;}
+    void stop () 
+    { 
+      if (elapsed == 0)
+        elapsed = TIMER() - initial; 
+    }
+    void clear() 
+    { 
+      hash2idx.clear(); 
+    }
+
     template<const int N>
       int start(const char (&tag)[N])
       {
@@ -137,39 +119,27 @@ struct TimerT
       }
     int start(const int idx)
     {
-      const unsigned long long t = TIMER(); 
-      stamps_beg[idx] = t;
+      stamps_beg[idx] = TIMER();
       return idx;
     }
-
-#if 0
-    template<const int N>
-      int stop(const char (&tag)[N])
-      { 
-        const int idx = string2idx<true>(tag);
-        return start(idx);
-      }
-#endif
-
     int stop(const int idx)
     {
       assert(idx >= 0 && idx < nCnt);
-      const unsigned long long t = TIMER(); 
-      stamps_end  [idx]  = t;
-      stamps_lapse[idx] += t - stamps_beg[idx];
+      stamps_end  [idx]  = TIMER();
+      stamps_lapse[idx] += stamps_end[idx] - stamps_beg[idx];
     }
 
     void dump() 
     {
+      stop();
       fprintf(stderr, "\n");
-      fprintf(stderr, " Timer: %s  : %selapsed= %g\n", name, elapsed == 0 ? "*" :" ", cvt(stop()));
+      fprintf(stderr, " Timer: %s  : %selapsed= %g\n", name, elapsed);
       fprintf(stderr, "-------------------------\n");
       for (int i = 0; i < nCnt; i++)
-        fprintf(stderr, "  > %s: %g \n", nameCnt[i], cvt(stamps_lapse[i]));
+        fprintf(stderr, "  > %s: %g \n", nameCnt[i], TIMERcvt(stamps_lapse[i]));
       fprintf(stderr, "=========================\n");
     }
 };
-#endif
 
 struct Timer
 {
