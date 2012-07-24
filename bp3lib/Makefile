@@ -3,7 +3,7 @@ CC  = gcc
 LD  = g++
 F90 = gfortran
 
-CXX = $(GCC47)/bin/g++
+CXX = $(GCC47)/bin/g++ -std=gnu++11
 LD  = $(CXX)
 
 ifeq ($(OMP), 1)

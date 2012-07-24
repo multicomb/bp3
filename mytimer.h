@@ -23,7 +23,7 @@ inline static unsigned long long TIMER()
   return count;
 }
 
-#include <map>
+#include <unordered_map>
 #include <string>
 #include <cstdio>
 #include <cassert>
@@ -75,7 +75,7 @@ struct TimerT
     const char* name;
     const char* nameCnt[NMAX];
 
-    typedef std::map<unsigned int, Int0> Map;
+    typedef std::unordered_map<unsigned int, Int0> Map;
 
     int nCnt;
     Map hash2idx;
@@ -97,7 +97,11 @@ struct TimerT
       }
 
   public:
-    TimerT(const char* _name) : name(_name), elapsed(0), nCnt(0) { initial = TIMER(); }
+    TimerT(const char* _name) : name(_name), elapsed(0), nCnt(0)
+  {
+    initial = TIMER();
+    hash2idx.reserve(10*NMAX);
+  }
 
     template<const int N>
       int start(const char (&tag)[N])
@@ -142,7 +146,7 @@ struct Timer
       unsigned long long operator+=(const unsigned long long x) {val += x;}
     };
 
-    typedef std::map<std::string, TimeVar> Map;
+    typedef std::unordered_map<std::string, TimeVar> Map;
 
 
     unsigned long long initial;
