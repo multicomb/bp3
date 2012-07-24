@@ -33,6 +33,7 @@ Timer Tlineminimizer("lineminimizer");
 Timer Tmore("More");
 Timer Tgrad1dim("Gradient1dim");
 Timer Tgrad("Grad");
+TimerT Tsad("SAD");
 
 // local functions
 void Banner(int, char**);
@@ -45,6 +46,7 @@ void Diff(Bp3likelihood &);
 
 int main(int argc, char** argv)
 {
+
   Tmain.start();
 
   std::string tag;
@@ -91,11 +93,12 @@ int main(int argc, char** argv)
   Tmain.dump();
   Trefine.dump();
   Tmrefine.dump();
-  Tsadgradient.dump();
   Tlineminimizer.dump();
   Tmore.dump();
   Tgrad1dim.dump();
   Tgrad.dump();
+  Tsadgradient.dump();
+  Tsad.dump();
   
   Termination();
 }
