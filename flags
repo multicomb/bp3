@@ -1,0 +1,16 @@
+# GNU/LINUX GCC  4.4.3
+# Usually you just have to change the LIBLAPACK variable
+#
+
+FF         = gfortran -fno-second-underscore -fno-stack-protector
+C++        = g++
+CC         = gcc -DGFORTRAN -DPROTOTYPE
+AR         = ar -r
+RANLIB     = ranlib
+LIBBP3     = ../../lib/bp3
+LIBCCP4    = ../../lib/ccp4
+FLAGS      = -O3 
+INCL       = -I$(LIBCCP4) -I$(CCP4)/include -I$(LIBBP3)
+LIBLAPACK  = -L$(CCP4)/lib -llapack -lblas 
+LIBCLIPPER = -L$(CCP4)/lib -lclipper-minimol -lclipper-mmdb -lclipper-contrib -lclipper-ccp4 -lclipper-core -lrfftw -lfftw -lmmdb
+LIBS       = -L$(LIBCCP4) $(LIBLAPACK) $(LIBCLIPPER) -lgfortran -lccp4f -lccp4c -lm  -pthread
