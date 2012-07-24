@@ -28,7 +28,6 @@
 Timer Tmain("Main");
 Timer Trefine("Refine");
 Timer Tmrefine("Minimizer::Refine");
-Timer Tsadgradient("SADgradient");
 Timer Tlineminimizer("lineminimizer");
 Timer Tmore("More");
 Timer Tgrad1dim("Gradient1dim");
@@ -97,7 +96,6 @@ int main(int argc, char** argv)
   Tmore.dump();
   Tgrad1dim.dump();
   Tgrad.dump();
-  Tsadgradient.dump();
   Tsad.dump();
   
   Termination();
@@ -120,7 +118,6 @@ void GetInput(Model &mdl, Crystal &xtal,
 
 void Refine(Bp3likelihood &likelihood, Minimizer &minimizer)
 {
-  Tsadgradient.start();
   Tmrefine.start();
   Trefine.start();
   Trefine.start("Getrefineall");
@@ -217,7 +214,6 @@ void Refine(Bp3likelihood &likelihood, Minimizer &minimizer)
   Trefine.stop("Gethand");
   Trefine.stop();
   Tmrefine.stop();
-  Tsadgradient.stop();
 }
 
 void Diff(Bp3likelihood &likelihood)

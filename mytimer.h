@@ -5,14 +5,13 @@
 #ifndef __TIMER__H__
 #define __TIMER__H__
 
-inline double get_wtime(){
+inline static double get_wtime(){
   struct timeval tv;
   gettimeofday(&tv, 0);
   return tv.tv_sec + 1.e-6 * tv.tv_usec;
 }
 
-typedef unsigned long long TIMERout;
-inline static double TIMERcvt(const TIMERout val)
+inline static double TIMERcvt(const unsigned long long val)
 {
   return (double)val*1.0e-9;
 }
@@ -28,7 +27,6 @@ inline static unsigned long long TIMER()
 #include <string>
 #include <cstdio>
 #include <cassert>
-#include <unordered_map>
 
 template <unsigned int N, unsigned int I>
 struct FnvHash
@@ -77,7 +75,7 @@ struct TimerT
     const char* name;
     const char* nameCnt[NMAX];
 
-    typedef std::unordered_map<unsigned int, Int0> Map;
+    typedef std::map<unsigned int, Int0> Map;
 
     int nCnt;
     Map hash2idx;
@@ -100,16 +98,6 @@ struct TimerT
 
   public:
     TimerT(const char* _name) : name(_name), elapsed(0), nCnt(0) { initial = TIMER(); }
-    void start() { initial = TIMER(); elapsed = 0; nCnt = 0;}
-    void stop () 
-    { 
-      if (elapsed == 0)
-        elapsed = TIMER() - initial; 
-    }
-    void clear() 
-    { 
-      hash2idx.clear(); 
-    }
 
     template<const int N>
       int start(const char (&tag)[N])
@@ -131,9 +119,9 @@ struct TimerT
 
     void dump() 
     {
-      stop();
+      elapsed = TIMER() - initial; 
       fprintf(stderr, "\n");
-      fprintf(stderr, " Timer: %s  : %selapsed= %g\n", name, elapsed);
+      fprintf(stderr, " Timer: %s  : elapsed= %g\n", name, TIMERcvt(elapsed));
       fprintf(stderr, "-------------------------\n");
       for (int i = 0; i < nCnt; i++)
         fprintf(stderr, "  > %s: %g \n", nameCnt[i], TIMERcvt(stamps_lapse[i]));
@@ -154,7 +142,7 @@ struct Timer
       unsigned long long operator+=(const unsigned long long x) {val += x;}
     };
 
-    typedef std::unordered_map<std::string, TimeVar> Map;
+    typedef std::map<std::string, TimeVar> Map;
 
 
     unsigned long long initial;
