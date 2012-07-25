@@ -66,7 +66,7 @@ struct TimerT
     struct Int0
     {
       int val;
-      operator int() const { return val; }
+      operator int() const {return val; }
       Int0(const int _val = -1) : val(_val) {}
     };
 

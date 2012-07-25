@@ -32,7 +32,9 @@ Timer Tlineminimizer("lineminimizer");
 Timer Tmore("More");
 Timer Tgrad1dim("Gradient1dim");
 Timer Tgrad("Grad");
-TimerT Tsad("SAD");
+TimerT Tsad("SAD-OUTPUT");
+TimerT Tsad1("SAD-NOOUTPUT");
+TimerT Tsad2("SAD");
 
 // local functions
 void Banner(int, char**);
@@ -97,6 +99,8 @@ int main(int argc, char** argv)
   Tgrad1dim.dump();
   Tgrad.dump();
   Tsad.dump();
+  Tsad1.dump();
+  Tsad2.dump();
   
   Termination();
 }

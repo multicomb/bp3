@@ -21,7 +21,11 @@
 #include <math.h>
 #include "bp3likelihood.h"
 #include "mytimer.h"
-extern TimerT Tsad;
+#include <cmath>
+extern TimerT Tsad, Tsad1, Tsad2;
+
+inline float  __sqrt(const float  x) {return std::sqrt(x);}
+inline double __sqrt(const double x) {return std::sqrt(x);}
 
 double Bp3likelihood::uncorrelatedgradient(const bool check, const bool outputmtz)
 {
@@ -813,8 +817,516 @@ double Bp3likelihood::uncorrelatedgradient(const bool check, const bool outputmt
   return likelihood;
 }
 
-double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
+double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
 {
+  assert(!interpolate);
+  if (outputmtzX || checkX) 
+    return sadgradient_gold(checkX, outputmtzX);
+ 
+  assert(!outputmtzX);
+  assert(!checkX); 
+
+  const int tagMain = Tsad2.start("Main");
+  // Calculates likelihood for a sad data set (d=0) assuming correlated errors.
+  likelihood                      = ZERO;
+
+  unsigned d(cd);
+  double fomreso((double)xtal.sf[d].hires);
+
+  CMtz::MTZ *MTZOUT(NULL),  *MTZIN(NULL);
+
+  unsigned inc                    = (allin) ? colin.size() : 3;
+
+  vector<double> detmodel(xtal.sf[d].nbins, ONE);
+
+  fprintf(stderr, " <<<<<<< d= %d nbins= %d \n", d, xtal.sf[d].nbins);
+  int tagId = Tsad2.start("part1");
+  Matrix recovmodel(2), recovinvmodel(2);
+
+  for (unsigned s = 0; s < xtal.sf[d].nbins; s++)
+  {
+    dLdsigmah[d][s] = dLdsumfpp[d][s] = ZERO;
+    dLdsdluz [d][s]                   = ZERO;
+    afom        [s] = cfom[s]         = ZERO;
+    anshl    [d][s] = cnshl[d][s]     = ZERO;
+
+    // covariance matrix for the model
+
+    const double model[ ] = 
+    {
+      xtal.sf[d].sigmah[s],
+      xtal.sf[d].sigmah[s] - sumfpp[d][d][s],
+      xtal.sf[d].sigmah[s] - sumfpp[d][d][s],
+      xtal.sf[d].sigmah[s]};
+
+    covmodel[s].assign(model);
+    inverse2by2(covmodel[s], covinvmodel[s], detmodel[s]);
+  }
+  Tsad2.stop(tagId);
+
+
+  fprintf(stderr, " <<<<<<<<<< xtal.maxselref= %d  sadweight.size()= %d\n", xtal.maxselref,
+      (int)sadweight.size());
+  tagId = Tsad2.start("part2");
+
+  vector<double> exparg(sadweight.size());
+  vector<double> besselarg(sadweight.size());
+
+  const int nCCP4 = outputhcalc ? 14+inc : 11+inc;
+  const int fCCP4 = CCP4::ccp4_nan().f;
+  vector<float> fdata(nCCP4);
+
+  for (unsigned r                 = 0; r < xtal.maxselref; r++)
+  {
+    int tag1 = Tsad2.start("part2::01");
+    // Default value for columns to be written out is MNF
+
+    for (int i = 0; i < nCCP4; i++)
+      fdata[i] = fCCP4;
+
+
+    dLdAp[d][r] = dLdBp[d][r] = dLdAm[d][r] =  dLdBm[d][r] = ZERO;
+    Tsad2.stop(tag1);
+
+    tag1 = Tsad2.start("part2::02");
+    const double  eps = (double)xtal.epsilon[r];
+    unsigned sa =         xtal.bin(d,r);
+
+    // epsilon correct model covariance
+    const double tmodel[] = 
+    {
+      covmodel[sa](0,0)*eps, covmodel[sa](0,1)*eps,
+      covmodel[sa](1,0)*eps, covmodel[sa](1,1)*eps
+    };
+
+    recovmodel.assign(tmodel);
+
+    const double tinvmodel[] =
+    {
+      covinvmodel[sa](0,0)/eps, covinvmodel[sa](0,1)/eps,
+      covinvmodel[sa](1,0)/eps, covinvmodel[sa](1,1)/eps
+    };
+
+    recovinvmodel.assign(tinvmodel);
+
+    const double det2 = detmodel[sa]*eps*eps;
+
+    double           sd = xtal.sf[d]. sdluz[sa];
+    const double sigmah = xtal.sf[d].sigmah[sa];
+    const double sigman = xtal.sf[d].sigman[sa];
+    const double sfpp   = sumfpp[d][d][sa];
+
+    unsigned sb(sa);
+    double wa(ONE), wb(ZERO);
+
+    Tsad2.stop(tag1);
+
+    if (!(xtal.sf[d].use(r) && xtal.sf[d].anouse(r) && !xtal.centric[r]))
+      continue;
+
+
+    const int tagCounts = Tsad2.start("counts");
+    tag1 = Tsad2.start("part2::03");
+    // total covariance matrices
+
+    const double cov[] = 
+    {
+      eps*sigman+xtal.sf[d].devp[r]*xtal.sf[d].devp[r],
+      eps*(sigman-sfpp), sd*recovmodel(0,0),
+      sd*recovmodel(0,1),
+      eps*(sigman-sfpp),
+      eps*sigman+xtal.sf[d].devm[r]*xtal.sf[d].devm[r],
+      sd*recovmodel(0,1), sd*recovmodel(0,0),
+      sd*recovmodel(0,0), sd*recovmodel(0,1),
+         recovmodel(0,0),    recovmodel(0,1),
+      sd*recovmodel(0,1), sd*recovmodel(0,0),
+         recovmodel(0,1),    recovmodel(0,0)
+    };      
+
+    recov.assign(cov);
+
+    double det4(ONE);
+
+    const bool filter = inverse(recov,recovinv,det4);
+
+
+    Tsad2.stop(tag1);
+    tag1 = Tsad2.start("part2::04");
+
+    // derivatives of the matrices
+    // wrt sdluz
+
+    const double rtmp1[] = 
+    {
+      ZERO, ZERO, -recovmodel(0,0), -recovmodel(0,1),
+      ZERO, ZERO, -recovmodel(0,1), -recovmodel(0,0),
+      -recovmodel(0,0), -recovmodel(0,1), ZERO, ZERO,
+      -recovmodel(0,1), -recovmodel(0,0), ZERO, ZERO
+    };
+
+    matrixprod(redAdsd,recovinv,rtmp1);
+
+    const double rtmp2[] = 
+    {
+      ZERO, ZERO, -eps*sd, -eps*sd,
+      ZERO, ZERO, -eps*sd, -eps*sd,
+      -eps*sd, -eps*sd, -eps, -eps,
+      -eps*sd, -eps*sd, -eps, -eps
+    };
+
+    matrixprod(redAdsigh,recovinv,rtmp2);
+
+    // wrt sumfpp
+
+    const double rtmp3[] = 
+    {
+      ZERO, TWO*eps, ZERO, TWO*eps*sd,
+      TWO*eps, ZERO, TWO*eps*sd, ZERO,
+      ZERO, TWO*eps*sd, ZERO, TWO*eps,
+      TWO*eps*sd, ZERO, TWO*eps, ZERO
+    };
+
+    matrixprod(redAdsfpp,recovinv,rtmp3);
+
+    const double cosdiff = tab.Cos        (xtal.sf[d].pcalcp[r] - xtal.sf[d].pcalcm[r]);
+    const double sindiff = tab.Sin_charged(xtal.sf[d].pcalcp[r] - xtal.sf[d].pcalcm[r]);  
+
+    Tsad2.stop(tag1);
+    tag1 = Tsad2.start("part2::05");
+
+    likelihood += 
+      recovinv(0,0)*xtal.sf[d].datap[r]*
+      xtal.sf[d].datap[r]+
+      recovinv(1,1)*xtal.sf[d].datam[r]*
+      xtal.sf[d].datam[r]+
+      (recovinv(2,2) - recovinvmodel(0,0))*
+      xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+      (recovinv(3,3) - recovinvmodel(1,1))*
+      xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r]+
+      TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+      (recovinv(2,3) - recovinvmodel(0,1))*cosdiff;
+
+    const double cospcalcp = tab.Cos        (xtal.sf[d].pcalcp[r]);
+    const double sinpcalcp = tab.Sin_charged(xtal.sf[d].pcalcp[r]);
+    const double cospcalcm = tab.Cos        (xtal.sf[d].pcalcm[r]);
+    const double sinpcalcm = tab.Sin_charged(xtal.sf[d].pcalcm[r]);
+
+    const double dldfp = 
+      TWO*(xtal.sf[d].fcalcp[r]*(recovinv(2,2) - recovinvmodel(0,0)) +
+           xtal.sf[d].fcalcm[r]*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
+    const double dldfm = 
+      TWO*(xtal.sf[d].fcalcm[r]*(recovinv(3,3) - recovinvmodel(1,1)) +
+           xtal.sf[d].fcalcp[r]*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
+    const double dldpp = -TWO*xtal.sf[d].fcalcm[r]*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
+    const double dldpm =  TWO*xtal.sf[d].fcalcp[r]*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
+
+
+    dLdAp[d][r]                 = dldfp*cospcalcp - dldpp*sinpcalcp;
+    dLdBp[d][r]                 = dldfp*sinpcalcp + dldpp*cospcalcp;
+    dLdAm[d][r]                 = dldfm*cospcalcm - dldpm*sinpcalcm;
+    dLdBm[d][r]                 = dldfm*sinpcalcm + dldpm*cospcalcm;
+
+    const double dLdsd = 
+      redAdsd(0,0)*xtal.sf[d]. datap[r]*xtal.sf[d]. datap[r] +
+      redAdsd(1,1)*xtal.sf[d]. datam[r]*xtal.sf[d]. datam[r] +
+      redAdsd(2,2)*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+      redAdsd(3,3)*xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+      TWO         *xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*redAdsd(2,3)*cosdiff;
+    dLdsdluz[d][sa] += wa*dLdsd;
+
+    double temp  = recovinvmodel(0,0) + recovinvmodel(0,1);
+    double temp1 = -eps*temp*temp;
+    double temp2;
+
+    Tsad2.stop(tag1); 
+
+    if (updatesigmah)
+    {
+      tag1 = Tsad2.start("part2::updatesigmah");
+      
+      dLdsigmah[d][sa] += 
+         redAdsigh(0,0)          * xtal.sf[d]. datap[r]*xtal.sf[d]. datap[r] +
+         redAdsigh(1,1)          * xtal.sf[d]. datam[r]*xtal.sf[d]. datam[r] +
+        (redAdsigh(2,2) - temp1) * xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+        (redAdsigh(3,3) - temp1) * xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+        TWO*xtal.sf[d].fcalcp[r] * xtal.sf[d].fcalcm[r]*(redAdsigh(2,3) - temp1)*cosdiff;
+
+        temp1                     = TWO*eps*(recovinvmodel(0,0)*recovinvmodel(0,0) +
+            recovinvmodel(0,1)*recovinvmodel(0,1));
+        temp2                     = FOUR*eps*recovinvmodel(0,0)*recovinvmodel(0,1);
+
+      dLdsumfpp[d][sa] += 
+         redAdsfpp(0,0)          * xtal.sf[d]. datap[r]*xtal.sf[d]. datap[r] +
+         redAdsfpp(1,1)          * xtal.sf[d]. datam[r]*xtal.sf[d]. datam[r] +
+        (redAdsfpp(2,2) - temp2) * xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+        (redAdsfpp(3,3) - temp2) * xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+        TWO*xtal.sf[d].fcalcp[r] * xtal.sf[d].fcalcm[r]*(redAdsfpp(2,3) - temp1)*cosdiff;
+
+      Tsad2.stop(tag1); 
+    }
+
+    double integral(ZERO), totcos(ZERO), totsin(ZERO); 
+    double dldfcalcp(ZERO), dldfcalcm(ZERO), dldpcalcp(ZERO), dldpcalcm(ZERO);
+    double dldsd(ZERO), dldsigh(ZERO), dldsfpp(ZERO);
+    double maxexpval(ZERO);
+
+    if (!filter)
+    {
+      tag1 = Tsad2.start("part2::filter");
+      // precalculate arguments in summation/integration      
+      const double dcos1dfp = -TWO    *xtal.sf[d]. datam[r]*cospcalcp*recovinv(1,2);
+      const double dcos1dfm = -TWO    *xtal.sf[d]. datam[r]*cospcalcm*recovinv(1,3);
+
+      const double cos1     = dcos1dfp*xtal.sf[d].fcalcp[r] + dcos1dfm*xtal.sf[d].fcalcm[r];
+
+      const double dcos1dpp = TWO*xtal.sf[d].datam[r]*sinpcalcp*recovinv(1,2);
+      const double dcos1dpm = TWO*xtal.sf[d].datam[r]*sinpcalcm*recovinv(1,3); 
+
+      const double dcos1dsd = -TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*cospcalcp*redAdsd(1,2) +
+         xtal.sf[d].fcalcm[r]*cospcalcm*redAdsd(1,3));
+      const double dcos1dsigh = -TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*cospcalcp*redAdsigh(1,2) +
+         xtal.sf[d].fcalcm[r]*cospcalcm*redAdsigh(1,3));
+      const double dcos1dsfpp = -TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*cospcalcp*redAdsfpp(1,2) +
+         xtal.sf[d].fcalcm[r]*cospcalcm*redAdsfpp(1,3));
+
+      const double dsin1dfp = -TWO*xtal.sf[d].datam[r]*sinpcalcp*recovinv(1,2);
+      const double dsin1dfm = -TWO*xtal.sf[d].datam[r]*sinpcalcm*recovinv(1,3);
+
+      const double sin1     = dsin1dfp*xtal.sf[d].fcalcp[r] + dsin1dfm*xtal.sf[d].fcalcm[r];
+
+      const double dsin1dpp = -TWO*xtal.sf[d].datam[r]*cospcalcp*recovinv(1,2);
+      const double dsin1dpm = -TWO*xtal.sf[d].datam[r]*cospcalcm*recovinv(1,3);
+
+      const double dsin1dsd = -TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*sinpcalcp*redAdsd(1,2) +
+         xtal.sf[d].fcalcm[r]*sinpcalcm*redAdsd(1,3));
+      const double dsin1dsigh = -TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*sinpcalcp*redAdsigh(1,2) +
+         xtal.sf[d].fcalcm[r]*sinpcalcm*redAdsigh(1,3));
+      const double dsin1dsfpp = -TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*sinpcalcp*redAdsfpp(1,2) +
+         xtal.sf[d].fcalcm[r]*sinpcalcm*redAdsfpp(1,3));
+
+      temp = recovinv(0,2)*recovinv(0,3)*cosdiff;
+
+      const double bessarg  = 
+        recovinv(0,1)*recovinv(0,1) * xtal.sf[d]. datam[r]*xtal.sf[d]. datam[r] +
+        recovinv(0,2)*recovinv(0,2) * xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+        recovinv(0,3)*recovinv(0,3) * xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+        TWO                         * xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r] * temp;
+
+      const double dbessargdfp =  TWO*(xtal.sf[d].fcalcp[r]*recovinv(0,2)*recovinv(0,2) + xtal.sf[d].fcalcm[r]*temp);
+      const double dbessargdfm =  TWO*(xtal.sf[d].fcalcm[r]*recovinv(0,3)*recovinv(0,3) + xtal.sf[d].fcalcp[r]*temp);
+      const double dbessargdpp = -TWO*(xtal.sf[d].fcalcm[r]*recovinv(0,2)*recovinv(0,3)*sindiff);
+      const double dbessargdpm  = TWO*(xtal.sf[d].fcalcp[r]*recovinv(0,2)*recovinv(0,3)*sindiff);
+
+      const double dbessargdsd = TWO*(
+          recovinv(0,1)*redAdsd(0,1) * xtal.sf[d].datam[r]*xtal.sf[d].datam[r] +
+          recovinv(0,2)*redAdsd(0,2) * xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+          recovinv(0,3)*redAdsd(0,3) * xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r] * (
+            (recovinv(0,2)*redAdsd(0,3) + redAdsd(0,2)*recovinv(0,3))*cosdiff)
+          );
+
+      const double dbessargdsigh = TWO*(
+          recovinv(0,1)*redAdsigh(0,1) * xtal.sf[d]. datam[r]*xtal.sf[d]. datam[r] +
+          recovinv(0,2)*redAdsigh(0,2) * xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+          recovinv(0,3)*redAdsigh(0,3) * xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r] * (
+            (recovinv(0,2)*redAdsigh(0,3) + redAdsigh(0,2)*recovinv(0,3))*cosdiff)
+          );
+
+      const double dbessargdsfpp = TWO*(
+          recovinv(0,1)*redAdsfpp(0,1) * xtal.sf[d].datam[r]*xtal.sf[d].datam[r] +
+          recovinv(0,2)*redAdsfpp(0,2) * xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+          recovinv(0,3)*redAdsfpp(0,3) * xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r] * (
+            (recovinv(0,2)*redAdsfpp(0,3) + redAdsfpp(0,2)*recovinv(0,3))*cosdiff)
+          );
+
+      temp1 = TWO*xtal.sf[d].datam[r]*recovinv(0,1)*recovinv(0,2);
+      temp2 = TWO*xtal.sf[d].datam[r]*recovinv(0,1)*recovinv(0,3);
+
+      const double dcos2dfp = temp1*cospcalcp;
+      const double dcos2dfm = temp2*cospcalcm;
+      const double  cos2    = dcos2dfp*xtal.sf[d].fcalcp[r] + dcos2dfm*xtal.sf[d].fcalcm[r];
+      const double dcos2dpp = -temp1*sinpcalcp;
+      const double dcos2dpm = -temp2*sinpcalcm;
+
+      const double dcos2dsd = TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*cospcalcp) +
+         xtal.sf[d].fcalcm[r]*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*cospcalcm));
+
+      const double dcos2dsigh = TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*cospcalcp) +
+         xtal.sf[d].fcalcm[r]*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*cospcalcm));
+
+      const double dcos2dsfpp = TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*cospcalcp) +
+         xtal.sf[d].fcalcm[r]*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*cospcalcm));
+
+      const double dsin2dfp = temp1*sinpcalcp;
+      const double dsin2dfm = temp2*sinpcalcm;
+      const double  sin2    = dsin2dfp*xtal.sf[d].fcalcp[r] + dsin2dfm*xtal.sf[d].fcalcm[r];
+      const double dsin2dpp = temp1*cospcalcp;
+      const double dsin2dpm = temp2*cospcalcm;
+
+      const double dsin2dsd = TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*sinpcalcp) +
+         xtal.sf[d].fcalcm[r]*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*sinpcalcm));
+
+      const double dsin2dsigh = TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*sinpcalcp) +
+         xtal.sf[d].fcalcm[r]*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*sinpcalcm));
+
+      const double dsin2dsfpp = TWO*xtal.sf[d].datam[r]*
+        (xtal.sf[d].fcalcp[r]*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*sinpcalcp) +
+         xtal.sf[d].fcalcm[r]*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*sinpcalcm));
+
+
+      // For stability in the numerical integral, calculate the maximum value
+      // of the exponential.  And, since all the values are calculated, store
+      // the arguments of exponential and the bessel functions in arrays.
+
+      for (unsigned i = 0; i < sadweight.size(); i++)
+      { 
+        const double bess2    = cos2*sadcos[i] + sin2*sadsin[i] + bessarg;
+        const double tempbess = bess2 > 0.0 ? __sqrt(bess2) : 0.0;
+
+        exparg   [i]  = cos1*sadcos[i] + sin1*sadsin[i];
+        besselarg[i]  = TWO*xtal.sf[d].datap[r]*tempbess;
+        exparg   [i] += besselarg[i];
+
+        maxexpval = exparg[i] > maxexpval ? exparg[i] : maxexpval;
+      }
+
+      for (unsigned i = 0; i < sadweight.size(); i++)
+      {
+        const double     io = tab.I0e(besselarg[i]);
+        const double simarg = TWO* xtal.sf[d].datap[r]*xtal.sf[d].datap[r]* tab.Simoverx_preI0(besselarg[i], io);
+        const double   prob = tab.ExpM(maxexpval - exparg[i])*io;
+        const double  wprob = prob*sadweight[i];
+        integral += wprob;
+        totcos   += wprob*sadcos[i];
+        totsin   += wprob*sadsin[i];
+
+        dldfcalcp -= ((dbessargdfp   + dcos2dfp  *sadcos[i] + dsin2dfp  *sadsin[i])*simarg + (dcos1dfp  *sadcos[i] + dsin1dfp  *sadsin[i]))*wprob;
+        dldfcalcm -= ((dbessargdfm   + dcos2dfm  *sadcos[i] + dsin2dfm  *sadsin[i])*simarg + (dcos1dfm  *sadcos[i] + dsin1dfm  *sadsin[i]))*wprob;
+        dldpcalcp -= ((dbessargdpp   + dcos2dpp  *sadcos[i] + dsin2dpp  *sadsin[i])*simarg + (dcos1dpp  *sadcos[i] + dsin1dpp  *sadsin[i]))*wprob; 
+        dldpcalcm -= ((dbessargdpm   + dcos2dpm  *sadcos[i] + dsin2dpm  *sadsin[i])*simarg + (dcos1dpm  *sadcos[i] + dsin1dpm  *sadsin[i]))*wprob;
+        dldsd     -= ((dbessargdsd   + dcos2dsd  *sadcos[i] + dsin2dsd  *sadsin[i])*simarg + (dcos1dsd  *sadcos[i] + dsin1dsd  *sadsin[i]))*wprob;
+        dldsigh   -= ((dbessargdsigh + dcos2dsigh*sadcos[i] + dsin2dsigh*sadsin[i])*simarg + (dcos1dsigh*sadcos[i] + dsin1dsigh*sadsin[i]))*wprob;
+        dldsfpp   -= ((dbessargdsfpp + dcos2dsfpp*sadcos[i] + dsin2dsfpp*sadsin[i])*simarg + (dcos1dsfpp*sadcos[i] + dsin1dsfpp*sadsin[i]))*wprob;
+      }
+
+      Tsad2.stop(tag1); 
+    }
+
+    if ( (integral              > DSMALL) && !filter) 
+    {
+      tag1 = Tsad2.start("part2::10");
+      likelihood -= log(det2*integral/det4) + maxexpval;
+
+#if 0
+      const double inv_integral = 1.0/integral;
+      dLdAp[d][r] += (dldfcalcp*cospcalcp - dldpcalcp*sinpcalcp) * inv_integral;
+      dLdBp[d][r] += (dldfcalcp*sinpcalcp + dldpcalcp*cospcalcp) * inv_integral;
+      dLdAm[d][r] += (dldfcalcm*cospcalcm - dldpcalcm*sinpcalcm) * inv_integral;
+      dLdBm[d][r] += (dldfcalcm*sinpcalcm + dldpcalcm*cospcalcm) * inv_integral;
+
+      const double dLdsd = 
+        dldsd * inv_integral +  
+        TWO*( recovmodel(0,0)*(recovinv(0,2) + recovinv(1,3)) +
+              recovmodel(0,1)*(recovinv(0,3) + recovinv(1,2)) );
+      dLdsdluz[d][sa]+= wa*dLdsd;
+
+
+      if (updatesigmah)
+      {
+        dLdsigmah[d][sa] += 
+          dldsigh*inv_integral + eps*(
+              (recovinv(0,2) +     recovinv(0,3) + recovinv(1,2) + recovinv(1,3))*TWO*sd +
+               recovinv(2,2) + TWO*recovinv(2,3) + recovinv(3,3) -
+              (recovinvmodel(0,0)+TWO*recovinvmodel(0,1) + recovinvmodel(1,1)));
+
+        dLdsumfpp[d][sa] += dldsfpp*inv_integral - FOUR*eps*
+          ( recovinv(0,1) + recovinv(2,3) +
+           (recovinv(0,3) + recovinv(1,2))*sd - recovinvmodel(0,1));	
+      }
+
+      const double fom = __sqrt(totcos*totcos + totsin*totsin)*inv_integral;
+#else
+      dLdAp[d][r] += (dldfcalcp*cospcalcp - dldpcalcp*sinpcalcp) / integral;
+      dLdBp[d][r] += (dldfcalcp*sinpcalcp + dldpcalcp*cospcalcp) / integral;
+      dLdAm[d][r] += (dldfcalcm*cospcalcm - dldpcalcm*sinpcalcm) / integral;
+      dLdBm[d][r] += (dldfcalcm*sinpcalcm + dldpcalcm*cospcalcm) / integral;
+
+      const double dLdsd = 
+        dldsd / integral +  
+        TWO*( recovmodel(0,0)*(recovinv(0,2) + recovinv(1,3)) +
+              recovmodel(0,1)*(recovinv(0,3) + recovinv(1,2)) );
+      dLdsdluz[d][sa]+= wa*dLdsd;
+
+
+      if (updatesigmah)
+      {
+        dLdsigmah[d][sa] += 
+          dldsigh / integral + eps*(
+              (recovinv(0,2) +     recovinv(0,3) + recovinv(1,2) + recovinv(1,3))*TWO*sd +
+               recovinv(2,2) + TWO*recovinv(2,3) + recovinv(3,3) -
+              (recovinvmodel(0,0)+TWO*recovinvmodel(0,1) + recovinvmodel(1,1)));
+
+        dLdsumfpp[d][sa] += dldsfpp / integral - FOUR*eps*
+          ( recovinv(0,1) + recovinv(2,3) +
+           (recovinv(0,3) + recovinv(1,2))*sd - recovinvmodel(0,1));	
+      }
+
+      const double fom = __sqrt(totcos*totcos + totsin*totsin) / integral;
+#endif
+
+      double phib               = atan2(totsin, totcos);
+      if (xtal.centric[r])
+        phib  =  ((cos(phib - xtal.centricphase[r]) >= ZERO) ?
+              xtal.centricphase[r] : xtal.centricphase[r] + PI);
+
+      const int s = xtal.bin(d,r);
+
+      if (xtal.centric[r])
+      {
+        cfom    [s] += fom;
+        cnshl[d][s]++;
+      }
+      else
+      {
+        afom    [s] += fom;
+        anshl[d][s]++;
+      }
+
+      Tsad2.stop(tag1);
+    }
+    else
+      likelihood += 2750.0;
+    Tsad2.stop(tagCounts);
+
+
+  }
+  Tsad2.stop(tagId);
+
+
+  if (xtal.verbose > 1)
+    printf("LIKELIHOOD = %f\n",likelihood);
+
+
+  Tsad2.stop(tagMain);
+  return likelihood;
+}
+
+double Bp3likelihood::sadgradient_gold(const bool check, const bool outputmtz)
+{
+  assert(check || outputmtz);
   const int tagMain = Tsad.start("Main");
   // Calculates likelihood for a sad data set (d=0) assuming correlated errors.
   likelihood                      = ZERO;
@@ -891,6 +1403,7 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
   const int fCCP4 = CCP4::ccp4_nan().f;
   vector<float> fdata(nCCP4);
 #endif
+
   for (unsigned r                 = 0; r < xtal.maxselref; r++)
   {
     int tag1 = Tsad.start("part2::01");
