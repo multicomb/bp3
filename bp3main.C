@@ -35,6 +35,7 @@ Timer Tgrad("Grad");
 TimerT Tsad("SAD-OUTPUT");
 TimerT Tsad1("SAD-NOOUTPUT");
 TimerT Tsad2("SAD");
+TimerT Tinverse("Inverse");
 
 // local functions
 void Banner(int, char**);
@@ -101,6 +102,7 @@ int main(int argc, char** argv)
   Tsad.dump();
   Tsad1.dump();
   Tsad2.dump();
+  Tinverse.dump();
   
   Termination();
 }

@@ -33,6 +33,9 @@ extern "C" {
 #include "ccp4_fortran.h"
 #include "csymlib.h"
 
+#include "../mytimer.h"
+extern TimerT Tinverse;
+
 extern "C" void FORTRAN_CALL ( DSYEVD, dsyevd,
     (char*, char*, int*, double*, int *,double*, double*, int*, int*, int*, int*),
     (char*, char*, int*, double*, int *,double*, double*, int*, int*, int*, int*),
@@ -1741,6 +1744,7 @@ bool Likelihood::hermitianinverse(Matrix &reori, Matrix &imori, Matrix &reinv,
 
 bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
 {
+  const int tagMain = Tinverse.start("Main");
   // pseudoinverse for real symmetric matrix
   evectors.resize(ori.size());
   evalues.resize(ori.rsize());
@@ -1751,6 +1755,11 @@ bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
   char jobz('V'), uplo('U');
   int n(ori.rsize()), lda(ori.rsize());
 
+  int tag1 = Tinverse.start("DSYEVD");
+#if 0
+  fprintf(stderr, "n= %d lda= %d  lwork= %d, liwork= %d\n",
+      n, lda, lwork, liwork);
+#endif
   FORTRAN_CALL ( DSYEVD, dsyevd,
       (&jobz, &uplo, &n, &evectors[0], &lda, &evalues[0], &lawork[0],
        &lwork, &iwork[0], &liwork, &info),
@@ -1758,7 +1767,9 @@ bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
        &lwork, &iwork[0], &liwork, &info),
       (&jobz, &uplo, &n, &evectors[0], &lda, &evalues[0], &lawork[0], 
        &lwork, &iwork[0], &liwork, &info));
+  Tinverse.stop(tag1);
 
+  tag1 = Tinverse.start("loop1");
   for (unsigned i        = 0; i < ori.rsize(); i++)
     for (unsigned j      = i; j < ori.csize(); j++)
     {
@@ -1775,17 +1786,22 @@ bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
       inv(i,j)           = recompinv;
       inv(j,i)           = recompinv;
     }
+  Tinverse.stop(tag1);
 
   det                    = ONE;
 
   bool filter(false);
 
+  tag1 = Tinverse.start("loop2");
   for (unsigned i        = 0; i < ori.rsize(); i++)
   {
     if (evalues[i]       < MINEIG)
       filter             = true;
     det                 *= (evalues[i] < MINEIG) ? MINEIG : evalues[i];
   }
+  Tinverse.stop(tag1);
+
+  Tinverse.stop(tagMain);
   return filter;  
 }
 

@@ -1042,7 +1042,9 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
 
     double det4(ONE);
 
+    int tagMatrix = Tsad2.start("Inverse");
     const bool filter = inverse(recov,recovinv,det4);
+    Tsad2.stop(tagMatrix);
 
 
     Tsad2.stop(tag1);
