@@ -845,14 +845,15 @@ template<typename T>
 struct CrystalLight
 {
   typedef std::vector<CrystalLight> Vector;
-  double eps;
-  double centricphase;
-  int sa, use, centric, iPad;
+  float eps, centricphase;
+  int sa, centric;
   CrystalLight(const int _sa, const int _use, const int _centric, const double _eps, const double _centricphase) :
-    eps(_eps), centricphase(_centricphase), sa(_sa), use(_use), centric(_centric)
+    eps(_eps), centricphase(_centricphase), sa(_sa), centric(_centric)
   {
-    assert(sizeof(CrystalLight) == 8*sizeof(float));
+    assert(sizeof(CrystalLight) == 4*sizeof(float));
+    if (!_use) sa = -1-sa;
   }
+  bool use() const {return sa >= 0;}
 };
 
 template<typename T>
@@ -877,11 +878,13 @@ struct SfLightT
   }
 };
 
-typedef DLdT <double> DLd;
-typedef DLd1T<double> DLd1;
+typedef double myReal;
 
-typedef SadT    <double> Sad;
-typedef SfLightT<double> SfLight;
+typedef DLdT <myReal> DLd;
+typedef DLd1T<myReal> DLd1;
+
+typedef SadT    <myReal> Sad;
+typedef SfLightT<myReal> SfLight;
 
 
 double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
@@ -974,6 +977,9 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     const CrystalLight &crystal = crystalVec[r];
     const      SfLight      &sf =      sfVec[r];
 
+    if (!crystal.use() || crystal.centric)
+      continue;
+
     Tsad2.stop(tag1);
 
     tag1 = Tsad2.start("part2::02");
@@ -1013,14 +1019,6 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     const double wa(ONE);
 
     Tsad2.stop(tag1);
-
-#if 0
-    if (!(xtal.sf[d].use(r) && xtal.sf[d].anouse(r) && !xtal.centric[r]))
-      continue;
-#else
-    if (!crystal.use || crystal.centric)
-      continue;
-#endif
 
     const int tagCounts = Tsad2.start("counts");
     tag1 = Tsad2.start("part2::03");
