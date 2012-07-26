@@ -62,10 +62,10 @@ $(TRGT): $(OBJ)
 
 
 clean:
-	/bin/rm -rf *.o $(TRGT)
+	/bin/rm -rf *.o $(TRGT).a
 
 clean_all:
-	/bin/rm -rf *.o $(TRGT) *~
+	/bin/rm -rf *.o $(TRGT).a *~
 
 $(OBJ): bp3_version.h  covmat.h  crystal.h  gauss.h  gaussian.h  input.h  likelihood.h  llhood.h  matrix.h  minimizer.h  misc.h  model.h  sfdata.h  tabfunc.h
 
