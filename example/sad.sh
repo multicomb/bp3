@@ -1,0 +1,57 @@
+#!/bin/sh
+
+set -e
+
+../bp3 HKLIN $CEXAM/tutorial/data/gere_MAD_nat.mtz HKLOUT $CCP4_SCR/gere_MAD_phase.mtz << eof-bp3 
+
+# SAD data on peak wavelength
+
+Xtal DER1
+ ATOM Se
+   XYZ 0.567606  0.19651  0.117643
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.637982  0.0428475  0.217668
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.469871  0.255659  0.23827
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.49385  0.188126  0.41977
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.794401  0.401274  0.137605
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.716238  0.238362  0.0869784
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.259739  0.00855349  0.239787
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.343637  0.168551  0.319304
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.173773  -0.0720953  0.391003
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.179076  0.0804735  0.520765
+   OCCU 0.1
+   BISO 25.0
+ ATOM Se
+   XYZ 0.926494  0.231291  0.18954
+   OCCU 0.1
+   BISO 25.0
+DNAME PEAK
+  COLUmn F+=F_peak(+) SF+=SIGF_peak(+) F-=F_peak(-) SF-=SIGF_peak(-)
+  FORM Se FP=-4.0 FPP=4.0
+eof-bp3
