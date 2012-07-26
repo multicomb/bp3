@@ -34,7 +34,7 @@ extern "C" {
 #include "csymlib.h"
 
 #include "../mytimer.h"
-extern TimerT Tinverse;
+extern TimerT Tinverse, TinverseGold;
 
 extern "C" void FORTRAN_CALL ( DSYEVD, dsyevd,
     (char*, char*, int*, double*, int *,double*, double*, int*, int*, int*, int*),
@@ -47,6 +47,15 @@ FORTRAN_CALL( ZHEEVD, zheevd,
     (char*, char*, int*, std::complex<double>*, int*, double*, std::complex<double>*, int*, double*, int*, int*, int*, int*),
     (char*, char*, int*, std::complex<double>*, int*, double*, std::complex<double>*, int*, double*, int*, int*, int*, int*));
 
+extern "C" 
+{
+    // LU decomoposition of a general matrix
+    void dpotrf_(char* U, int *N, double* A, int* lda, int* INFO);
+
+    // generate inverse of a matrix given its LU decomposition
+    void dpotri_(char* U, int *N, double* A, int* lda, int* INFO);
+
+}
   Likelihood::Likelihood(Model &model, Crystal &crystal)
 : mdl(model), xtal(crystal)
 {
@@ -1745,6 +1754,53 @@ bool Likelihood::hermitianinverse(Matrix &reori, Matrix &imori, Matrix &reinv,
 bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
 {
   const int tagMain = Tinverse.start("Main");
+  
+  const int n = ori.csize();
+  assert(ori.csize() == ori.rsize());
+  assert((int)ori.size() == n*n);
+  assert(n == 4);
+
+  int errorHandler;
+  double lapackWorkspace[16];
+  int N = 4;
+  int lwork = N*N;
+  char chU[] = "U";
+
+  int tag = Tinverse.start("DPOTRF");
+  Matrix inv1(ori);
+  dpotrf_(chU, &N, inv1.array(), &N, &errorHandler);
+  assert(errorHandler >= 0);
+  Tinverse.stop(tag);
+
+  if (errorHandler > 0)
+  {
+    Tinverse.stop(tagMain);
+    return inverse_gold(ori, inv, det);
+  }
+
+  det = 1.0;
+  for (int i = 0; i < n; i++)
+    det *= inv1(i,i);
+  det *= det;
+  assert(det > 0.0);
+
+
+  tag = Tinverse.start("DPOTRI");
+  dpotri_(chU, &N, inv1.array(), &N, &errorHandler);
+  assert(0 == errorHandler);
+  for (unsigned i        = 0; i < ori.rsize(); i++)
+    for (unsigned j      = i; j < ori.csize(); j++)
+      inv(j,i) = inv(i,j) = inv1(i,j);
+  Tinverse.stop(tag);
+
+  Tinverse.stop(tagMain);
+  return false;
+}
+
+bool Likelihood::inverse_gold(Matrix &ori, Matrix &inv, double &det)
+{
+  const int tagMain = TinverseGold.start("Main");
+
   // pseudoinverse for real symmetric matrix
   evectors.resize(ori.size());
   evalues.resize(ori.rsize());
@@ -1755,11 +1811,7 @@ bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
   char jobz('V'), uplo('U');
   int n(ori.rsize()), lda(ori.rsize());
 
-  int tag1 = Tinverse.start("DSYEVD");
-#if 0
-  fprintf(stderr, "n= %d lda= %d  lwork= %d, liwork= %d\n",
-      n, lda, lwork, liwork);
-#endif
+  int tag1 = TinverseGold.start("DSYEVD");
   FORTRAN_CALL ( DSYEVD, dsyevd,
       (&jobz, &uplo, &n, &evectors[0], &lda, &evalues[0], &lawork[0],
        &lwork, &iwork[0], &liwork, &info),
@@ -1767,12 +1819,13 @@ bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
        &lwork, &iwork[0], &liwork, &info),
       (&jobz, &uplo, &n, &evectors[0], &lda, &evalues[0], &lawork[0], 
        &lwork, &iwork[0], &liwork, &info));
-  Tinverse.stop(tag1);
+  TinverseGold.stop(tag1);
 
-  tag1 = Tinverse.start("loop1");
+  tag1 = TinverseGold.start("loop1");
   for (unsigned i        = 0; i < ori.rsize(); i++)
     for (unsigned j      = i; j < ori.csize(); j++)
     {
+      assert(ori(i,j) == ori(j,i));
       double recomp(ZERO), recompinv(ZERO);
       for (unsigned k    = 0; k < ori.rsize(); k++)
         if (evalues[k]   > MINEIG)
@@ -1786,22 +1839,22 @@ bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
       inv(i,j)           = recompinv;
       inv(j,i)           = recompinv;
     }
-  Tinverse.stop(tag1);
+  TinverseGold.stop(tag1);
 
   det                    = ONE;
 
   bool filter(false);
 
-  tag1 = Tinverse.start("loop2");
+  tag1 = TinverseGold.start("loop2");
   for (unsigned i        = 0; i < ori.rsize(); i++)
   {
     if (evalues[i]       < MINEIG)
       filter             = true;
     det                 *= (evalues[i] < MINEIG) ? MINEIG : evalues[i];
   }
-  Tinverse.stop(tag1);
+  TinverseGold.stop(tag1);
 
-  Tinverse.stop(tagMain);
+  TinverseGold.stop(tagMain);
   return filter;  
 }
 

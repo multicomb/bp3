@@ -23,6 +23,7 @@
 #include "mytimer.h"
 #include <cmath>
 extern TimerT Tsad, Tsad1, Tsad2;
+extern unsigned long long filter_cnt, filter_cnt_all;
 
 inline float  __sqrt(const float  x) {return std::sqrt(x);}
 inline double __sqrt(const double x) {return std::sqrt(x);}
@@ -1161,8 +1162,10 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     double dldsd(ZERO), dldsigh(ZERO), dldsfpp(ZERO);
     double maxexpval(ZERO);
 
+    filter_cnt_all++;
     if (!filter)
     {
+      filter_cnt++;
       tag1 = Tsad2.start("part2::filter");
       // precalculate arguments in summation/integration      
       const double dcos1dfp = -TWO    *sf. datam*cospcalcp*recovinv(1,2);

@@ -35,7 +35,9 @@ Timer Tgrad("Grad");
 TimerT Tsad("SAD-OUTPUT");
 TimerT Tsad1("SAD-NOOUTPUT");
 TimerT Tsad2("SAD");
+TimerT TinverseGold("InverseGold");
 TimerT Tinverse("Inverse");
+unsigned long long filter_cnt = 0, filter_cnt_all = 0;
 
 // local functions
 void Banner(int, char**);
@@ -102,7 +104,10 @@ int main(int argc, char** argv)
   Tsad.dump();
   Tsad1.dump();
   Tsad2.dump();
+  TinverseGold.dump();
   Tinverse.dump();
+  fprintf(stderr, " filter= %llu  all= %llu  frac= %g\n",
+      filter_cnt, filter_cnt_all, (double)filter_cnt/(double)filter_cnt_all);
   
   Termination();
 }

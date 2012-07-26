@@ -240,6 +240,7 @@ class Likelihood
   int lwork, liwork, info;    
   bool hermitianinverse(Matrix &, Matrix &, Matrix &, Matrix &, double &, const bool = false);
   bool inverse(Matrix &, Matrix &, double &);
+  bool inverse_gold(Matrix &, Matrix &, double &);
   void inverse2by2(Matrix &, Matrix &, double &);
   void hermitianmatrixprod(Matrix &, Matrix &,
 			   const Matrix &, const Matrix &,
