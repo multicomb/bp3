@@ -890,6 +890,7 @@ typedef SfLightT<myReal> SfLight;
 
 double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
 {
+//  return sadgradient_gold(checkX, outputmtzX);
   assert(!interpolate);
   assert(cd == 0);
   if (outputmtzX || checkX) 
@@ -905,7 +906,7 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
   const int d = 0;
   vector<double> detmodel(xtal.sf[d].nbins, ONE);
 
-  fprintf(stderr, " <<<<<<< nbins= %d \n", xtal.sf[d].nbins);
+  fprintf(stderr, " <<<<<<< d= %d nbins= %d \n", d, xtal.sf[d].nbins);
   int tagId = Tsad2.start("part1");
   Matrix recovmodel(2), recovinvmodel(2);
 
@@ -949,7 +950,7 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
   const int nRefl = xtal.maxselref;
   crystalVec.reserve(nRefl);
        sfVec.reserve(nRefl);
-       
+  
   for (int r = 0; r < nRefl; r++)
   {
     crystalVec.push_back( CrystalLight(
@@ -966,169 +967,185 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
   }
 
   Tsad2.stop(tagP);
+  vector<double> exparg(sadweight.size(), ZERO);
+  vector<double> besselarg(sadweight.size(), ZERO);
 
-  for (unsigned r = 0; r < xtal.maxselref; r++)
+#if 0
+#define _LLOCAL_
+#endif
+#if 0
+#define _LDLOCAL_
+#endif
+  for (unsigned r                 = 0; r < xtal.maxselref; r++)
   {
     int tag1 = Tsad2.start("part2::01");
-    // Default value for columns to be written out is MNF
-
-    DLd  dL (0.0);
-    DLd1 dL1(0.0);
 
     const CrystalLight &crystal = crystalVec[r];
     const      SfLight      &sf =      sfVec[r];
-
     if (!crystal.use() || crystal.centric)
       continue;
 
+    dLdAp[d][r]                   = dLdBp[d][r] = dLdAm[d][r] =  dLdBm[d][r] = ZERO;
     Tsad2.stop(tag1);
 
-    tag1 = Tsad2.start("part2::02");
-#if 0
-    const float  feps = (float)xtal.epsilon[r];
-    const double eps  = (double)feps;
-    const unsigned sa =         xtal.bin(d,r);
-#else
-    const double eps = (double)crystal.eps;
-    const int     sa =         crystal.sa;
+#ifdef _LDLOCAL_
+    double dLdsigmahL = 0.0;
+    double dLdsumfppL = 0.0;
+    double dLdsdluzL  = 0.0;
 #endif
 
+    tag1 = Tsad2.start("part2::02");
+    double eps((double) xtal.epsilon[r]);
+    unsigned sa(xtal.bin(d,r));
+
     // epsilon correct model covariance
-    const double tmodel[] = 
-    {
-      covmodel[sa](0,0)*eps, covmodel[sa](0,1)*eps,
-      covmodel[sa](1,0)*eps, covmodel[sa](1,1)*eps
-    };
+    const double tmodel[ ]        = {covmodel[sa](0,0)*eps, covmodel[sa](0,1)*eps,
+      covmodel[sa](1,0)*eps, covmodel[sa](1,1)*eps};
 
     recovmodel.assign(tmodel);
 
-    const double tinvmodel[] =
-    {
-      covinvmodel[sa](0,0)/eps, covinvmodel[sa](0,1)/eps,
-      covinvmodel[sa](1,0)/eps, covinvmodel[sa](1,1)/eps
-    };
+    const double tinvmodel[ ]     = {covinvmodel[sa](0,0)/eps, covinvmodel[sa](0,1)/eps,
+      covinvmodel[sa](1,0)/eps, covinvmodel[sa](1,1)/eps};
 
     recovinvmodel.assign(tinvmodel);
 
-    const double det2 = detmodel[sa]*eps*eps;
+    double det2(detmodel[sa]*eps*eps);
 
-    double           sd = xtal.sf[d]. sdluz[sa];
-    const double sigmah = xtal.sf[d].sigmah[sa];
-    const double sigman = xtal.sf[d].sigman[sa];
-    const double sfpp   = sumfpp[d][d][sa];
+    double sigmah(xtal.sf[d].sigmah[sa]), sfpp(sumfpp[d][d][sa]);
+    double sigman(xtal.sf[d].sigman[sa]), sd(xtal.sf[d].sdluz[sa]);
+    unsigned sb(sa);
+    double wa(ONE), wb(ZERO);
 
-    const double wa(ONE);
-
-    Tsad2.stop(tag1);
+    unsigned counts(0);
 
     const int tagCounts = Tsad2.start("counts");
     tag1 = Tsad2.start("part2::03");
     // total covariance matrices
 
-    const double cov[] = 
-    {
-      eps*sigman+sf.devp*sf.devp,
+    const double cov[ ]         = {eps*sigman+xtal.sf[d].devp[r]*xtal.sf[d].devp[r],
       eps*(sigman-sfpp), sd*recovmodel(0,0),
       sd*recovmodel(0,1),
       eps*(sigman-sfpp),
-      eps*sigman+sf.devm*sf.devm,
+      eps*sigman+xtal.sf[d].devm[r]*xtal.sf[d].devm[r],
       sd*recovmodel(0,1), sd*recovmodel(0,0),
       sd*recovmodel(0,0), sd*recovmodel(0,1),
-      recovmodel(0,0),    recovmodel(0,1),
+      recovmodel(0,0), recovmodel(0,1),
       sd*recovmodel(0,1), sd*recovmodel(0,0),
-      recovmodel(0,1),    recovmodel(0,0)
-    };      
+      recovmodel(0,1), recovmodel(0,0)};      
 
     recov.assign(cov);
 
     double det4(ONE);
 
-    int tagMatrix = Tsad2.start("Inverse");
-    const bool filter = inverse(recov,recovinv,det4);
-    Tsad2.stop(tagMatrix);
+    bool filter                 = inverse(recov,recovinv,det4);
 
 
     Tsad2.stop(tag1);
     tag1 = Tsad2.start("part2::04");
+    //if (fabs(recov(2,2))        > DSMALL)
+    //	sd                        = xtal.sf[d].sdluz[sa] = recov(0,2)/recov(2,2);
 
     // derivatives of the matrices
+
     // wrt sdluz
 
-    const double rtmp1[] = 
-    {
-      ZERO, ZERO, -recovmodel(0,0), -recovmodel(0,1),
+    const double rtmp1[ ]       = {ZERO, ZERO, -recovmodel(0,0), -recovmodel(0,1),
       ZERO, ZERO, -recovmodel(0,1), -recovmodel(0,0),
       -recovmodel(0,0), -recovmodel(0,1), ZERO, ZERO,
-      -recovmodel(0,1), -recovmodel(0,0), ZERO, ZERO
-    };
+      -recovmodel(0,1), -recovmodel(0,0), ZERO, ZERO};
 
     matrixprod(redAdsd,recovinv,rtmp1);
 
-    const double rtmp2[] = 
-    {
-      ZERO, ZERO, -eps*sd, -eps*sd,
+    const double rtmp2[ ]       = {ZERO, ZERO, -eps*sd, -eps*sd,
       ZERO, ZERO, -eps*sd, -eps*sd,
       -eps*sd, -eps*sd, -eps, -eps,
-      -eps*sd, -eps*sd, -eps, -eps
-    };
+      -eps*sd, -eps*sd, -eps, -eps};
 
     matrixprod(redAdsigh,recovinv,rtmp2);
 
     // wrt sumfpp
-
-    const double rtmp3[] = 
-    {
-      ZERO, TWO*eps, ZERO, TWO*eps*sd,
+    const double rtmp3[ ]       = {ZERO, TWO*eps, ZERO, TWO*eps*sd,
       TWO*eps, ZERO, TWO*eps*sd, ZERO,
       ZERO, TWO*eps*sd, ZERO, TWO*eps,
-      TWO*eps*sd, ZERO, TWO*eps, ZERO
-    };
+      TWO*eps*sd, ZERO, TWO*eps, ZERO};
 
     matrixprod(redAdsfpp,recovinv,rtmp3);
 
-    const double cosdiff = tab.Cos        (sf.pcalcp - sf.pcalcm);
-    const double sindiff = tab.Sin_charged(sf.pcalcp - sf.pcalcm);  
+    double cosdiff              = tab.Cos(xtal.sf[d].pcalcp[r] - xtal.sf[d].pcalcm[r]);
+
+    double sindiff              = tab.Sin_charged(xtal.sf[d].pcalcp[r] - xtal.sf[d].pcalcm[r]);  
 
     Tsad2.stop(tag1);
     tag1 = Tsad2.start("part2::05");
 
-    double likelihood_local = 
-      recovinv(0,0)*sf.datap*sf.datap+
-      recovinv(1,1)*sf.datam*sf.datam+
-      (recovinv(2,2) - recovinvmodel(0,0))*sf.fcalcp*sf.fcalcp +
-      (recovinv(3,3) - recovinvmodel(1,1))*sf.fcalcm*sf.fcalcm+
-      TWO*sf.fcalcp*sf.fcalcm*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff;
+#ifdef _LLOCAL_
+    double likelihood_local = (recovinv(0,0)*xtal.sf[d].datap[r]*
+        xtal.sf[d].datap[r]+
+        recovinv(1,1)*xtal.sf[d].datam[r]*
+        xtal.sf[d].datam[r]+
+        (recovinv(2,2) - recovinvmodel(0,0))*
+        xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+        (recovinv(3,3) - recovinvmodel(1,1))*
+        xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r]+
+        TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+        (recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
+#else
+    likelihood                 += (recovinv(0,0)*xtal.sf[d].datap[r]*
+        xtal.sf[d].datap[r]+
+        recovinv(1,1)*xtal.sf[d].datam[r]*
+        xtal.sf[d].datam[r]+
+        (recovinv(2,2) - recovinvmodel(0,0))*
+        xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+        (recovinv(3,3) - recovinvmodel(1,1))*
+        xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r]+
+        TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+        (recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
+#endif
 
-    const double cospcalcp = tab.Cos        (sf.pcalcp);
-    const double sinpcalcp = tab.Sin_charged(sf.pcalcp);
-    const double cospcalcm = tab.Cos        (sf.pcalcm);
-    const double sinpcalcm = tab.Sin_charged(sf.pcalcm);
+    double cospcalcp            = tab.Cos(xtal.sf[d].pcalcp[r]);
+    double sinpcalcp            = tab.Sin_charged(xtal.sf[d].pcalcp[r]);
+    double cospcalcm            = tab.Cos(xtal.sf[d].pcalcm[r]);
+    double sinpcalcm            = tab.Sin_charged(xtal.sf[d].pcalcm[r]);
 
-    const double dldfp = 
-      TWO*(sf.fcalcp*(recovinv(2,2) - recovinvmodel(0,0)) +
-          sf.fcalcm*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
-    const double dldfm = 
-      TWO*(sf.fcalcm*(recovinv(3,3) - recovinvmodel(1,1)) +
-          sf.fcalcp*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
-    const double dldpp = -TWO*sf.fcalcm*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
-    const double dldpm =  TWO*sf.fcalcp*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
+    double dldfp                = (TWO*(xtal.sf[d].fcalcp[r]*
+          (recovinv(2,2)-recovinvmodel(0,0)) +
+          xtal.sf[d].fcalcm[r]*
+          (recovinv(2,3)-recovinvmodel(0,1))*
+          cosdiff));
+    double dldfm                = (TWO*(xtal.sf[d].fcalcm[r]*
+          (recovinv(3,3)-recovinvmodel(1,1)) +
+          xtal.sf[d].fcalcp[r]*
+          (recovinv(2,3)-recovinvmodel(0,1))*
+          cosdiff));
+    double dldpp                = (-TWO*xtal.sf[d].fcalcm[r]*
+        (recovinv(2,3)-recovinvmodel(0,1))*sindiff);
+    double dldpm                = (TWO*xtal.sf[d].fcalcp[r]*
+        (recovinv(2,3)-recovinvmodel(0,1))*sindiff);
 
 
-    dL.Ap = dldfp*cospcalcp - dldpp*sinpcalcp;
-    dL.Bp = dldfp*sinpcalcp + dldpp*cospcalcp;
-    dL.Am = dldfm*cospcalcm - dldpm*sinpcalcm;
-    dL.Bm = dldfm*sinpcalcm + dldpm*cospcalcm;
+    dLdAp[d][r]                 = dldfp*cospcalcp - dldpp*sinpcalcp;
+    dLdBp[d][r]                 = dldfp*sinpcalcp + dldpp*cospcalcp;
+    dLdAm[d][r]                 = dldfm*cospcalcm - dldpm*sinpcalcm;
+    dLdBm[d][r]                 = dldfm*sinpcalcm + dldpm*cospcalcm;
 
-    const double dLdsd = 
-      redAdsd(0,0)*sf. datap*sf. datap +
-      redAdsd(1,1)*sf. datam*sf. datam +
-      redAdsd(2,2)*sf.fcalcp*sf.fcalcp +
-      redAdsd(3,3)*sf.fcalcm*sf.fcalcm +
-      TWO         *sf.fcalcp*sf.fcalcm*redAdsd(2,3)*cosdiff;
-    dL1.sdluz += wa*dLdsd;
+    double dLdsd                = (redAdsd(0,0)*xtal.sf[d].datap[r]*
+        xtal.sf[d].datap[r]+
+        redAdsd(1,1)*xtal.sf[d].datam[r]*
+        xtal.sf[d].datam[r]+
+        redAdsd(2,2)*xtal.sf[d].fcalcp[r]*
+        xtal.sf[d].fcalcp[r]+
+        redAdsd(3,3)*xtal.sf[d].fcalcm[r]*
+        xtal.sf[d].fcalcm[r]+
+        TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+        redAdsd(2,3)*cosdiff);
+#ifdef _LDLOCAL_
+    dLdsdluzL += wa*dLdsd;
+#else
+    dLdsdluz[d][sa]            += wa*dLdsd;
+#endif
 
-    double temp  = recovinvmodel(0,0) + recovinvmodel(0,1);
-    double temp1 = -eps*temp*temp;
+    double temp                 = recovinvmodel(0,0) + recovinvmodel(0,1);
+    double temp1                = -eps*temp*temp;
     double temp2;
 
     Tsad2.stop(tag1); 
@@ -1136,259 +1153,427 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     if (updatesigmah)
     {
       tag1 = Tsad2.start("part2::updatesigmah");
+#ifdef _LDLOCAL_
+      dLdsigmahL         += (redAdsigh(0,0)*xtal.sf[d].datap[r]*
+          xtal.sf[d].datap[r]+
+          redAdsigh(1,1)*xtal.sf[d].datam[r]*
+          xtal.sf[d].datam[r]+
+          (redAdsigh(2,2) - temp1)*
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r]+
+          (redAdsigh(3,3) - temp1)*
+          xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r]+
+          TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+          (redAdsigh(2,3) - temp1)*cosdiff);
+#else
+      dLdsigmah[d][sa]         += (redAdsigh(0,0)*xtal.sf[d].datap[r]*
+          xtal.sf[d].datap[r]+
+          redAdsigh(1,1)*xtal.sf[d].datam[r]*
+          xtal.sf[d].datam[r]+
+          (redAdsigh(2,2) - temp1)*
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r]+
+          (redAdsigh(3,3) - temp1)*
+          xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r]+
+          TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+          (redAdsigh(2,3) - temp1)*cosdiff);
+#endif
 
-      dL1.sigmah += 
-        redAdsigh(0,0)          * sf. datap*sf. datap +
-        redAdsigh(1,1)          * sf. datam*sf. datam +
-        (redAdsigh(2,2) - temp1) * sf.fcalcp*sf.fcalcp +
-        (redAdsigh(3,3) - temp1) * sf.fcalcm*sf.fcalcm +
-        TWO*sf.fcalcp * sf.fcalcm*(redAdsigh(2,3) - temp1)*cosdiff;
+      temp1                     = TWO*eps*(recovinvmodel(0,0)*recovinvmodel(0,0) +
+          recovinvmodel(0,1)*recovinvmodel(0,1));
+      temp2                     = FOUR*eps*recovinvmodel(0,0)*recovinvmodel(0,1);
 
-      temp1 = TWO*eps*(recovinvmodel(0,0)*recovinvmodel(0,0) + recovinvmodel(0,1)*recovinvmodel(0,1));
-      temp2 = FOUR*eps*recovinvmodel(0,0)*recovinvmodel(0,1);
-
-      dL1.sumfpp += 
-        redAdsfpp(0,0)          * sf. datap*sf. datap +
-        redAdsfpp(1,1)          * sf. datam*sf. datam +
-        (redAdsfpp(2,2) - temp2) * sf.fcalcp*sf.fcalcp +
-        (redAdsfpp(3,3) - temp2) * sf.fcalcm*sf.fcalcm +
-        TWO*sf.fcalcp * sf.fcalcm*(redAdsfpp(2,3) - temp1)*cosdiff;
-
+#ifdef _LDLOCAL_
+      dLdsumfppL += (redAdsfpp(0,0)*xtal.sf[d].datap[r]*
+          xtal.sf[d].datap[r]+
+          redAdsfpp(1,1)*xtal.sf[d].datam[r]*
+          xtal.sf[d].datam[r]+
+          (redAdsfpp(2,2) - temp2)*
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r]+
+          (redAdsfpp(3,3) - temp2)*
+          xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r]+
+          TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+          (redAdsfpp(2,3) - temp1)*cosdiff);
+#else
+      dLdsumfpp[d][sa]         += (redAdsfpp(0,0)*xtal.sf[d].datap[r]*
+          xtal.sf[d].datap[r]+
+          redAdsfpp(1,1)*xtal.sf[d].datam[r]*
+          xtal.sf[d].datam[r]+
+          (redAdsfpp(2,2) - temp2)*
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r]+
+          (redAdsfpp(3,3) - temp2)*
+          xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r]+
+          TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+          (redAdsfpp(2,3) - temp1)*cosdiff);
+#endif
       Tsad2.stop(tag1); 
     }
 
     double integral(ZERO), totcos(ZERO), totsin(ZERO); 
+    double totlogcos(ZERO), totlogsin(ZERO), totlogcos2(ZERO), totlogsin2(ZERO);
     double dldfcalcp(ZERO), dldfcalcm(ZERO), dldpcalcp(ZERO), dldpcalcm(ZERO);
     double dldsd(ZERO), dldsigh(ZERO), dldsfpp(ZERO);
     double maxexpval(ZERO);
 
-    filter_cnt_all++;
     if (!filter)
     {
-      filter_cnt++;
       tag1 = Tsad2.start("part2::filter");
       // precalculate arguments in summation/integration      
-      const double dcos1dfp = -TWO    *sf. datam*cospcalcp*recovinv(1,2);
-      const double dcos1dfm = -TWO    *sf. datam*cospcalcm*recovinv(1,3);
+      double dcos1dfp           = -TWO*xtal.sf[d].datam[r]*cospcalcp*recovinv(1,2);
+      double dcos1dfm           = -TWO*xtal.sf[d].datam[r]*cospcalcm*recovinv(1,3);
+      double cos1               = (dcos1dfp*xtal.sf[d].fcalcp[r] +
+          dcos1dfm*xtal.sf[d].fcalcm[r]);
+      double dcos1dpp           = (TWO*xtal.sf[d].datam[r]*
+          sinpcalcp*recovinv(1,2));
+      double dcos1dpm           = (TWO*xtal.sf[d].datam[r]*
+          sinpcalcm*recovinv(1,3)); 
+      double dcos1dsd           = (-TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           cospcalcp*redAdsd(1,2) +
+           xtal.sf[d].fcalcm[r]*
+           cospcalcm*redAdsd(1,3)));
+      double dcos1dsigh         = (-TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           cospcalcp*redAdsigh(1,2) +
+           xtal.sf[d].fcalcm[r]*
+           cospcalcm*redAdsigh(1,3)));
+      double dcos1dsfpp         = (-TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           cospcalcp*redAdsfpp(1,2) +
+           xtal.sf[d].fcalcm[r]*
+           cospcalcm*redAdsfpp(1,3)));
 
-      const double cos1     = dcos1dfp*sf.fcalcp + dcos1dfm*sf.fcalcm;
+      double dsin1dfp           = (-TWO*xtal.sf[d].datam[r]*
+          sinpcalcp*recovinv(1,2));
+      double dsin1dfm           = (-TWO*xtal.sf[d].datam[r]*
+          sinpcalcm*recovinv(1,3));
+      double sin1               = (dsin1dfp*xtal.sf[d].fcalcp[r] +
+          dsin1dfm*xtal.sf[d].fcalcm[r]);
+      double dsin1dpp           = (-TWO*xtal.sf[d].datam[r]*
+          cospcalcp*recovinv(1,2));
+      double dsin1dpm           = (-TWO*xtal.sf[d].datam[r]*
+          cospcalcm*recovinv(1,3));
+      double dsin1dsd           = (-TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           sinpcalcp*redAdsd(1,2) +
+           xtal.sf[d].fcalcm[r]*
+           sinpcalcm*redAdsd(1,3)));
+      double dsin1dsigh         = (-TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           sinpcalcp*redAdsigh(1,2) +
+           xtal.sf[d].fcalcm[r]*
+           sinpcalcm*redAdsigh(1,3)));
+      double dsin1dsfpp         = (-TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           sinpcalcp*redAdsfpp(1,2) +
+           xtal.sf[d].fcalcm[r]*
+           sinpcalcm*redAdsfpp(1,3)));
 
-      const double dcos1dpp = TWO*sf.datam*sinpcalcp*recovinv(1,2);
-      const double dcos1dpm = TWO*sf.datam*sinpcalcm*recovinv(1,3); 
+      temp                      = (recovinv(0,2)*recovinv(0,3)*cosdiff);
 
-      const double dcos1dsd = -TWO*sf.datam*
-        (sf.fcalcp*cospcalcp*redAdsd(1,2) +
-         sf.fcalcm*cospcalcm*redAdsd(1,3));
-      const double dcos1dsigh = -TWO*sf.datam*
-        (sf.fcalcp*cospcalcp*redAdsigh(1,2) +
-         sf.fcalcm*cospcalcm*redAdsigh(1,3));
-      const double dcos1dsfpp = -TWO*sf.datam*
-        (sf.fcalcp*cospcalcp*redAdsfpp(1,2) +
-         sf.fcalcm*cospcalcm*redAdsfpp(1,3));
+      double bessarg            = (recovinv(0,1)*recovinv(0,1)*
+          xtal.sf[d].datam[r]*xtal.sf[d].datam[r] +
+          recovinv(0,2)*recovinv(0,2)*
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+          recovinv(0,3)*recovinv(0,3)*
+          xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+          TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*temp);
 
-      const double dsin1dfp = -TWO*sf.datam*sinpcalcp*recovinv(1,2);
-      const double dsin1dfm = -TWO*sf.datam*sinpcalcm*recovinv(1,3);
+      double dbessargdfp        = TWO*(xtal.sf[d].fcalcp[r]*
+          recovinv(0,2)*recovinv(0,2) +
+          xtal.sf[d].fcalcm[r]*temp);
 
-      const double sin1     = dsin1dfp*sf.fcalcp + dsin1dfm*sf.fcalcm;
+      double dbessargdfm        = TWO*(xtal.sf[d].fcalcm[r]*
+          recovinv(0,3)*recovinv(0,3) +
+          xtal.sf[d].fcalcp[r]*temp);
 
-      const double dsin1dpp = -TWO*sf.datam*cospcalcp*recovinv(1,2);
-      const double dsin1dpm = -TWO*sf.datam*cospcalcm*recovinv(1,3);
+      double dbessargdpp        = -TWO*(xtal.sf[d].fcalcm[r]*
+          recovinv(0,2)*recovinv(0,3)*sindiff);
 
-      const double dsin1dsd = -TWO*sf.datam*
-        (sf.fcalcp*sinpcalcp*redAdsd(1,2) +
-         sf.fcalcm*sinpcalcm*redAdsd(1,3));
-      const double dsin1dsigh = -TWO*sf.datam*
-        (sf.fcalcp*sinpcalcp*redAdsigh(1,2) +
-         sf.fcalcm*sinpcalcm*redAdsigh(1,3));
-      const double dsin1dsfpp = -TWO*sf.datam*
-        (sf.fcalcp*sinpcalcp*redAdsfpp(1,2) +
-         sf.fcalcm*sinpcalcm*redAdsfpp(1,3));
+      double dbessargdpm        = TWO*(xtal.sf[d].fcalcp[r]*
+          recovinv(0,2)*recovinv(0,3)*sindiff);
 
-      temp = recovinv(0,2)*recovinv(0,3)*cosdiff;
+      double dbessargdsd        = TWO*(recovinv(0,1)*redAdsd(0,1)*
+          xtal.sf[d].datam[r]*xtal.sf[d].datam[r] +
+          recovinv(0,2)*redAdsd(0,2)*
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+          recovinv(0,3)*redAdsd(0,3)*
+          xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+          ((recovinv(0,2)*redAdsd(0,3) +
+            redAdsd(0,2)*recovinv(0,3))*cosdiff));
 
-      const double bessarg  = 
-        recovinv(0,1)*recovinv(0,1) * sf. datam*sf. datam +
-        recovinv(0,2)*recovinv(0,2) * sf.fcalcp*sf.fcalcp +
-        recovinv(0,3)*recovinv(0,3) * sf.fcalcm*sf.fcalcm +
-        TWO                         * sf.fcalcp*sf.fcalcm * temp;
+      double dbessargdsigh      = TWO*(recovinv(0,1)*redAdsigh(0,1)*
+          xtal.sf[d].datam[r]*xtal.sf[d].datam[r] +
+          recovinv(0,2)*redAdsigh(0,2)*
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+          recovinv(0,3)*redAdsigh(0,3)*
+          xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+          ((recovinv(0,2)*redAdsigh(0,3) +
+            redAdsigh(0,2)*recovinv(0,3))*cosdiff));
 
-      const double dbessargdfp =  TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,2) + sf.fcalcm*temp);
-      const double dbessargdfm =  TWO*(sf.fcalcm*recovinv(0,3)*recovinv(0,3) + sf.fcalcp*temp);
-      const double dbessargdpp = -TWO*(sf.fcalcm*recovinv(0,2)*recovinv(0,3)*sindiff);
-      const double dbessargdpm  = TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,3)*sindiff);
+      double dbessargdsfpp      = TWO*(recovinv(0,1)*redAdsfpp(0,1)*
+          xtal.sf[d].datam[r]*xtal.sf[d].datam[r] +
+          recovinv(0,2)*redAdsfpp(0,2)*
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcp[r] +
+          recovinv(0,3)*redAdsfpp(0,3)*
+          xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r] +
+          xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
+          ((recovinv(0,2)*redAdsfpp(0,3) +
+            redAdsfpp(0,2)*recovinv(0,3))*cosdiff));
 
-      const double dbessargdsd = TWO*(
-          recovinv(0,1)*redAdsd(0,1) * sf.datam*sf.datam +
-          recovinv(0,2)*redAdsd(0,2) * sf.fcalcp*sf.fcalcp +
-          recovinv(0,3)*redAdsd(0,3) * sf.fcalcm*sf.fcalcm +
-          sf.fcalcp*sf.fcalcm * (
-            (recovinv(0,2)*redAdsd(0,3) + redAdsd(0,2)*recovinv(0,3))*cosdiff)
-          );
+      temp1                     = (TWO*xtal.sf[d].datam[r]*
+          recovinv(0,1)*recovinv(0,2));
+      temp2                     = (TWO*xtal.sf[d].datam[r]*
+          recovinv(0,1)*recovinv(0,3));
 
-      const double dbessargdsigh = TWO*(
-          recovinv(0,1)*redAdsigh(0,1) * sf. datam*sf. datam +
-          recovinv(0,2)*redAdsigh(0,2) * sf.fcalcp*sf.fcalcp +
-          recovinv(0,3)*redAdsigh(0,3) * sf.fcalcm*sf.fcalcm +
-          sf.fcalcp*sf.fcalcm * (
-            (recovinv(0,2)*redAdsigh(0,3) + redAdsigh(0,2)*recovinv(0,3))*cosdiff)
-          );
+      double dcos2dfp           = temp1*cospcalcp;
+      double dcos2dfm           = temp2*cospcalcm;
+      double cos2               = (dcos2dfp*xtal.sf[d].fcalcp[r] +
+          dcos2dfm*xtal.sf[d].fcalcm[r]);
+      double dcos2dpp           = -temp1*sinpcalcp;
+      double dcos2dpm           = -temp2*sinpcalcm;
 
-      const double dbessargdsfpp = TWO*(
-          recovinv(0,1)*redAdsfpp(0,1) * sf.datam*sf.datam +
-          recovinv(0,2)*redAdsfpp(0,2) * sf.fcalcp*sf.fcalcp +
-          recovinv(0,3)*redAdsfpp(0,3) * sf.fcalcm*sf.fcalcm +
-          sf.fcalcp*sf.fcalcm * (
-            (recovinv(0,2)*redAdsfpp(0,3) + redAdsfpp(0,2)*recovinv(0,3))*cosdiff)
-          );
+      double dcos2dsd           = (TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           ((recovinv(0,1)*redAdsd(0,2) +
+             redAdsd(0,1)*recovinv(0,2))*cospcalcp) +
+           xtal.sf[d].fcalcm[r]*
+           ((recovinv(0,1)*redAdsd(0,3) +
+             redAdsd(0,1)*recovinv(0,3))*cospcalcm)));
 
-      temp1 = TWO*sf.datam*recovinv(0,1)*recovinv(0,2);
-      temp2 = TWO*sf.datam*recovinv(0,1)*recovinv(0,3);
+      double dcos2dsigh         = (TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           ((recovinv(0,1)*redAdsigh(0,2) +
+             redAdsigh(0,1)*recovinv(0,2))*cospcalcp) +
+           xtal.sf[d].fcalcm[r]*
+           ((recovinv(0,1)*redAdsigh(0,3) +
+             redAdsigh(0,1)*recovinv(0,3))*cospcalcm)));
 
-      const double dcos2dfp = temp1*cospcalcp;
-      const double dcos2dfm = temp2*cospcalcm;
-      const double  cos2    = dcos2dfp*sf.fcalcp + dcos2dfm*sf.fcalcm;
-      const double dcos2dpp = -temp1*sinpcalcp;
-      const double dcos2dpm = -temp2*sinpcalcm;
+      double dcos2dsfpp         = (TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           ((recovinv(0,1)*redAdsfpp(0,2) +
+             redAdsfpp(0,1)*recovinv(0,2))*cospcalcp) +
+           xtal.sf[d].fcalcm[r]*
+           ((recovinv(0,1)*redAdsfpp(0,3) +
+             redAdsfpp(0,1)*recovinv(0,3))*cospcalcm)));
 
-      const double dcos2dsd = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*cospcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*cospcalcm));
+      double dsin2dfp           = temp1*sinpcalcp;
+      double dsin2dfm           = temp2*sinpcalcm;
+      double sin2               = (dsin2dfp*xtal.sf[d].fcalcp[r] + 
+          dsin2dfm*xtal.sf[d].fcalcm[r]);
+      double dsin2dpp           = temp1*cospcalcp;
+      double dsin2dpm           = temp2*cospcalcm;
 
-      const double dcos2dsigh = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*cospcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*cospcalcm));
+      double dsin2dsd           = (TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           ((recovinv(0,1)*redAdsd(0,2) +
+             redAdsd(0,1)*recovinv(0,2))*sinpcalcp) +
+           xtal.sf[d].fcalcm[r]*
+           ((recovinv(0,1)*redAdsd(0,3) +
+             redAdsd(0,1)*recovinv(0,3))*sinpcalcm)));
 
-      const double dcos2dsfpp = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*cospcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*cospcalcm));
+      double dsin2dsigh         = (TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           ((recovinv(0,1)*redAdsigh(0,2) +
+             redAdsigh(0,1)*recovinv(0,2))*sinpcalcp) +
+           xtal.sf[d].fcalcm[r]*
+           ((recovinv(0,1)*redAdsigh(0,3) +
+             redAdsigh(0,1)*recovinv(0,3))*sinpcalcm)));
 
-      const double dsin2dfp = temp1*sinpcalcp;
-      const double dsin2dfm = temp2*sinpcalcm;
-      const double  sin2    = dsin2dfp*sf.fcalcp + dsin2dfm*sf.fcalcm;
-      const double dsin2dpp = temp1*cospcalcp;
-      const double dsin2dpm = temp2*cospcalcm;
-
-      const double dsin2dsd = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*sinpcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*sinpcalcm));
-
-      const double dsin2dsigh = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*sinpcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*sinpcalcm));
-
-      const double dsin2dsfpp = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*sinpcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*sinpcalcm));
+      double dsin2dsfpp         = (TWO*xtal.sf[d].datam[r]*
+          (xtal.sf[d].fcalcp[r]*
+           ((recovinv(0,1)*redAdsfpp(0,2) +
+             redAdsfpp(0,1)*recovinv(0,2))*sinpcalcp) +
+           xtal.sf[d].fcalcm[r]*
+           ((recovinv(0,1)*redAdsfpp(0,3) +
+             redAdsfpp(0,1)*recovinv(0,3))*sinpcalcm)));
 
 
       // For stability in the numerical integral, calculate the maximum value
       // of the exponential.  And, since all the values are calculated, store
       // the arguments of exponential and the bessel functions in arrays.
 
-      for (unsigned i = 0; i < nSad; i++)
+#if 0
+      vector<double> exparg(sadweight.size(), ZERO);
+      vector<double> besselarg(sadweight.size(), ZERO);
+#endif
+
+      for (unsigned i           = 0; i < sadweight.size(); i++)
       { 
-        Sad &s = sadVec[i];
-        const double bess2    = cos2*s.cos + sin2*s.sin + bessarg;
-        const double tempbess = bess2 > 0.0 ? __sqrt(bess2) : 0.0;
-
-        const double besselarg = TWO*sf.datap*tempbess;
-        const double    exparg = cos1*s.cos + sin1*s.sin + besselarg;
-
-        s.besselarg = besselarg;
-        s.   exparg =    exparg;
-
-        maxexpval = exparg > maxexpval ? exparg : maxexpval;
+        exparg[i]               = cos1*sadcos[i] + sin1*sadsin[i];
+        double tempbess         = sqrt(std::max(cos2*sadcos[i] +
+              sin2*sadsin[i] +
+              bessarg, ZERO));
+        besselarg[i]            = TWO*xtal.sf[d].datap[r]*tempbess;
+        exparg[i]              += besselarg[i];
+        maxexpval               = std::max(maxexpval, exparg[i]);
       }
 
-      for (unsigned i = 0; i < nSad; i++)
+      for (unsigned i           = 0; i < sadweight.size(); i++)
       {
-        const Sad &s = sadVec[i];
+        double io               = tab.I0e(besselarg[i]);
+        double simarg           = (TWO*xtal.sf[d].datap[r]*xtal.sf[d].datap[r]*
+            tab.Simoverx_preI0(besselarg[i], io));
+        double prob             = tab.ExpM(maxexpval - exparg[i])*io;
+        double wprob            = prob*sadweight[i];
+        integral               += wprob;
+        totcos                 += wprob*sadcos[i];
+        totsin                 += wprob*sadsin[i];
 
-        const double     io = tab.I0e(s.besselarg);
-        const double simarg = TWO* sf.datap*sf.datap* tab.Simoverx_preI0(s.besselarg, io);
-        const double   prob = io * tab.ExpM(maxexpval - s.exparg);
-        const double  wprob = prob*s.weight;
-        integral += wprob;
-        totcos   += wprob*s.cos;
-        totsin   += wprob*s.sin;
-
-        dldfcalcp -= ((dbessargdfp   + dcos2dfp  *s.cos + dsin2dfp  *s.sin)*simarg + (dcos1dfp  *s.cos + dsin1dfp  *s.sin))*wprob;
-        dldfcalcm -= ((dbessargdfm   + dcos2dfm  *s.cos + dsin2dfm  *s.sin)*simarg + (dcos1dfm  *s.cos + dsin1dfm  *s.sin))*wprob;
-        dldpcalcp -= ((dbessargdpp   + dcos2dpp  *s.cos + dsin2dpp  *s.sin)*simarg + (dcos1dpp  *s.cos + dsin1dpp  *s.sin))*wprob; 
-        dldpcalcm -= ((dbessargdpm   + dcos2dpm  *s.cos + dsin2dpm  *s.sin)*simarg + (dcos1dpm  *s.cos + dsin1dpm  *s.sin))*wprob;
-        dldsd     -= ((dbessargdsd   + dcos2dsd  *s.cos + dsin2dsd  *s.sin)*simarg + (dcos1dsd  *s.cos + dsin1dsd  *s.sin))*wprob;
-        dldsigh   -= ((dbessargdsigh + dcos2dsigh*s.cos + dsin2dsigh*s.sin)*simarg + (dcos1dsigh*s.cos + dsin1dsigh*s.sin))*wprob;
-        dldsfpp   -= ((dbessargdsfpp + dcos2dsfpp*s.cos + dsin2dsfpp*s.sin)*simarg + (dcos1dsfpp*s.cos + dsin1dsfpp*s.sin))*wprob;
+        dldfcalcp              -= ((dbessargdfp + dcos2dfp*sadcos[i] +
+              dsin2dfp*sadsin[i])*simarg +
+            (dcos1dfp*sadcos[i] + dsin1dfp*sadsin[i]))*wprob;
+        dldfcalcm              -= ((dbessargdfm + dcos2dfm*sadcos[i] +
+              dsin2dfm*sadsin[i])*simarg +
+            (dcos1dfm*sadcos[i] + dsin1dfm*sadsin[i]))*wprob;
+        dldpcalcp              -= ((dbessargdpp +  dcos2dpp*sadcos[i] +
+              dsin2dpp*sadsin[i])*simarg +
+            (dcos1dpp*sadcos[i] + dsin1dpp*sadsin[i]))*wprob; 
+        dldpcalcm              -= ((dbessargdpm + dcos2dpm*sadcos[i] +
+              dsin2dpm*sadsin[i])*simarg +
+            (dcos1dpm*sadcos[i] + dsin1dpm*sadsin[i]))*wprob;
+        dldsd                  -= ((dbessargdsd + dcos2dsd*sadcos[i] +
+              dsin2dsd*sadsin[i])*simarg +
+            (dcos1dsd*sadcos[i] + dsin1dsd*sadsin[i]))*wprob;
+        dldsigh                -= ((dbessargdsigh + dcos2dsigh*sadcos[i] +
+              dsin2dsigh*sadsin[i])*simarg +
+            (dcos1dsigh*sadcos[i] + dsin1dsigh*sadsin[i]))*wprob;
+        dldsfpp                -= ((dbessargdsfpp + dcos2dsfpp*sadcos[i] +
+              dsin2dsfpp*sadsin[i])*simarg +
+            (dcos1dsfpp*sadcos[i] + dsin1dsfpp*sadsin[i]))*wprob;
+        if (prob                > SMALLESTD)
+        {
+          prob                  = log(prob)*sadweight[i];
+          totlogcos            += prob*sadcos[i];
+          totlogsin            += prob*sadsin[i];
+          totlogcos2           += prob*(sadcos[i]*sadcos[i] - sadsin[i]*sadsin[i]);
+          totlogsin2           += prob*TWO*sadcos[i]*sadsin[i];
+        }
       }
-
       Tsad2.stop(tag1); 
     }
 
     if ( (integral              > DSMALL) && !filter) 
     {
       tag1 = Tsad2.start("part2::10");
-      likelihood_local -= log(det2*integral/det4) + maxexpval;
+#ifdef _LLOCAL_
+      likelihood_local         -= (log(det2*integral/det4) + maxexpval);
+#else
+      likelihood               -= (log(det2*integral/det4) + maxexpval);
+#endif
 
-      dL.Ap += (dldfcalcp*cospcalcp - dldpcalcp*sinpcalcp) / integral;
-      dL.Bp += (dldfcalcp*sinpcalcp + dldpcalcp*cospcalcp) / integral;
-      dL.Am += (dldfcalcm*cospcalcm - dldpcalcm*sinpcalcm) / integral;
-      dL.Bm += (dldfcalcm*sinpcalcm + dldpcalcm*cospcalcm) / integral;
+      dLdAp[d][r]              += (dldfcalcp*cospcalcp - 
+          dldpcalcp*sinpcalcp)/integral;
+      dLdBp[d][r]              += (dldfcalcp*sinpcalcp + 
+          dldpcalcp*cospcalcp)/integral;
+      dLdAm[d][r]              += (dldfcalcm*cospcalcm - 
+          dldpcalcm*sinpcalcm)/integral;
+      dLdBm[d][r]              += (dldfcalcm*sinpcalcm + 
+          dldpcalcm*cospcalcm)/integral;
 
-      const double dLdsd = 
-        dldsd / integral +  
-        TWO*( recovmodel(0,0)*(recovinv(0,2) + recovinv(1,3)) +
-            recovmodel(0,1)*(recovinv(0,3) + recovinv(1,2)) );
-      dL1.sdluz += wa*dLdsd;
+      double dLdsd               = (dldsd/integral +
+          TWO*((recovmodel(0,0)*(recovinv(0,2) +
+                recovinv(1,3)) +
+              recovmodel(0,1)*(recovinv(0,3) +
+                recovinv(1,2)))));
 
+
+#ifdef _LDLOCAL_
+      dLdsdluzL          += wa*dLdsd;
+#else
+      dLdsdluz[d][sa]          += wa*dLdsd;
+#endif
 
       if (updatesigmah)
       {
-        dL1.sigmah += 
-          dldsigh / integral + eps*(
-              (recovinv(0,2) +     recovinv(0,3) + recovinv(1,2) + recovinv(1,3))*TWO*sd +
-              recovinv(2,2) + TWO*recovinv(2,3) + recovinv(3,3) -
-              (recovinvmodel(0,0)+TWO*recovinvmodel(0,1) + recovinvmodel(1,1)));
+#ifdef _LDLOCAL_
+        dLdsigmahL       += (dldsigh/integral +
+            eps*((recovinv(0,2) + recovinv(0,3) +
+                recovinv(1,2) + recovinv(1,3))*TWO*sd +
+              recovinv(2,2) + TWO*recovinv(2,3) +
+              recovinv(3,3) -
+              (recovinvmodel(0,0)+TWO*recovinvmodel(0,1) +
+               recovinvmodel(1,1))));
 
-        dL1.sumfpp += dldsfpp / integral - FOUR*eps*
-          ( recovinv(0,1) + recovinv(2,3) +
-            (recovinv(0,3) + recovinv(1,2))*sd - recovinvmodel(0,1));	
+        dLdsumfppL       += (dldsfpp/integral -
+            FOUR*eps*(recovinv(0,1) + recovinv(2,3) +
+              (recovinv(0,3) + recovinv(1,2))*sd -
+              recovinvmodel(0,1)));	
+#else
+        dLdsigmah[d][sa]       += (dldsigh/integral +
+            eps*((recovinv(0,2) + recovinv(0,3) +
+                recovinv(1,2) + recovinv(1,3))*TWO*sd +
+              recovinv(2,2) + TWO*recovinv(2,3) +
+              recovinv(3,3) -
+              (recovinvmodel(0,0)+TWO*recovinvmodel(0,1) +
+               recovinvmodel(1,1))));
+
+        dLdsumfpp[d][sa]       += (dldsfpp/integral -
+            FOUR*eps*(recovinv(0,1) + recovinv(2,3) +
+              (recovinv(0,3) + recovinv(1,2))*sd -
+              recovinvmodel(0,1)));	
+#endif
       }
 
-      const double fom = __sqrt(totcos*totcos + totsin*totsin) / integral;
+      double fom                 = sqrt(totcos*totcos + totsin*totsin)/integral;
 
-      double phib = atan2(totsin, totcos);
-      if (crystal.centric)
-        phib  =  ((cos(phib - crystal.centricphase) >= ZERO) ?
-            crystal.centricphase : crystal.centricphase + PI);
 
-      if (crystal.centric)
+      double phib               = atan2(totsin, totcos);
+      if (xtal.centric[r])
+        phib                    =  ((cos(phib - xtal.centricphase[r]) >= ZERO) ?
+            xtal.centricphase[r] : xtal.centricphase[r] + PI);
+
+      unsigned s                = xtal.bin(d,r);
+
+      if (xtal.centric[r])
       {
-        cfom    [sa] += fom;
-        cnshl[d][sa]++;
+        cfom[s]                += fom;
+        cnshl[d][s]++;
       }
       else
       {
-        afom    [sa] += fom;
-        anshl[d][sa]++;
+        afom[s]                += fom;
+        anshl[d][s]++;
       }
 
       Tsad2.stop(tag1);
     }
     else
-      likelihood_local += 2750.0;
+    {
+      tag1 = Tsad2.start("part2::11");
+      // double tmp(std::max(fabs(det4-0.001), ONE));
+      // likelihood                += 1000.0*(log(tmp) + 1.75);
+#ifdef _LLOCAL_
+      likelihood_local          += 2750.0;
+#else
+      likelihood                += 2750.0;
+#endif
+      /*
+         if (tmp                    > ONE)
+         {
+         dLdsdluz[d][sa]         += 1000.0*det4*(TWO*((recovinv(0,2)+recovinv(1,3))*recov(2,2) +
+         (recovinv(0,3)+recovinv(1,2))*recov(2,3)))/(0.001-det4);
+         dLdsigmah[d][sa]        += 1000.0*det4*eps*(TWO*sd*(recovinv(0,2)+recovinv(0,3)+recovinv(1,2)+
+         recovinv(1,3))+recovinv(2,2)+recovinv(3,3)+
+         TWO*recovinv(2,3))/(0.001-det4);
+         dLdsumfpp[d][sa]        += 1000.0*det4*(-FOUR*eps*(recovinv(0,1)+sd*(recovinv(0,3)+recovinv(1,2))+
+         recovinv(2,3)))/(0.001-det4);
+         }
+         */	
+      Tsad2.stop(tag1);
+    }
     Tsad2.stop(tagCounts);
 
-
-    dLdAp[d][r] = dL.Ap;
-    dLdBp[d][r] = dL.Bp;
-    dLdAm[d][r] = dL.Am;
-    dLdBm[d][r] = dL.Bm;
-    dLdsdluz [d][sa] += dL1.sdluz;
-    dLdsigmah[d][sa] += dL1.sigmah;
-    dLdsumfpp[d][sa] += dL1.sumfpp;
-
+#ifdef _LLOCAL_
     likelihood += likelihood_local;
+#endif
+#ifdef _LDLOCAL_
+    dLdsdluz [d][sa] += dLdsdluzL;
+    dLdsigmah[d][sa] += dLdsigmahL;
+    dLdsumfpp[d][sa] += dLdsumfppL;
+#endif
   }
+
   Tsad2.stop(tagId);
 
 
@@ -1402,7 +1587,6 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
 
 double Bp3likelihood::sadgradient_gold(const bool check, const bool outputmtz)
 {
-  assert(check || outputmtz);
   const int tagMain = Tsad.start("Main");
   // Calculates likelihood for a sad data set (d=0) assuming correlated errors.
   likelihood                      = ZERO;

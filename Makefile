@@ -1,5 +1,5 @@
 CXX = g++ 
-#CXX = $(GCC47)/bin/g++ 
+# CXX = $(GCC47)/bin/g++ 
 
 CC  = gcc
 F90 = gfortran

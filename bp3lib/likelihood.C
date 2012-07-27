@@ -1753,6 +1753,7 @@ bool Likelihood::hermitianinverse(Matrix &reori, Matrix &imori, Matrix &reinv,
 
 bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
 {
+  return inverse_gold(ori, inv, det);
   const int tagMain = Tinverse.start("Main");
   
   const int n = ori.csize();
