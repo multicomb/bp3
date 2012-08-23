@@ -1,0 +1,7 @@
+.*
+!.gitignore
+*.a
+*~
+*.o
+*.xml
+*.pdb
