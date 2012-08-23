@@ -986,10 +986,10 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     tag1 = Tsad2.start("part2::02");
 #if 0
     const float  feps = (float)xtal.epsilon[r];
-    const double eps  = (double)feps;
+    const myReal eps  = (myReal)feps;
     const unsigned sa =         xtal.bin(d,r);
 #else
-    const double eps = (double)crystal.eps;
+    const myReal eps = (myReal)crystal.eps;
     const int     sa =         crystal.sa;
 #endif
 
@@ -1010,14 +1010,14 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
 
     recovinvmodel.assign(tinvmodel);
 
-    const double det2 = detmodel[sa]*eps*eps;
+    const myReal det2 = detmodel[sa]*eps*eps;
 
-    double           sd = xtal.sf[d]. sdluz[sa];
-    const double sigmah = xtal.sf[d].sigmah[sa];
-    const double sigman = xtal.sf[d].sigman[sa];
-    const double sfpp   = sumfpp[d][d][sa];
+    myReal           sd = xtal.sf[d]. sdluz[sa];
+    const myReal sigmah = xtal.sf[d].sigmah[sa];
+    const myReal sigman = xtal.sf[d].sigman[sa];
+    const myReal sfpp   = sumfpp[d][d][sa];
 
-    const double wa(ONE);
+    const myReal wa(ONE);
 
     Tsad2.stop(tag1);
 
@@ -1086,32 +1086,32 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
 
     matrixprod(redAdsfpp,recovinv,rtmp3);
 
-    const double cosdiff = tab.Cos        (sf.pcalcp - sf.pcalcm);
-    const double sindiff = tab.Sin_charged(sf.pcalcp - sf.pcalcm);  
+    const myReal cosdiff = tab.Cos        (sf.pcalcp - sf.pcalcm);
+    const myReal sindiff = tab.Sin_charged(sf.pcalcp - sf.pcalcm);  
 
     Tsad2.stop(tag1);
     tag1 = Tsad2.start("part2::05");
 
-    double likelihood_local = 
+    myReal likelihood_local = 
       recovinv(0,0)*sf.datap*sf.datap+
       recovinv(1,1)*sf.datam*sf.datam+
       (recovinv(2,2) - recovinvmodel(0,0))*sf.fcalcp*sf.fcalcp +
       (recovinv(3,3) - recovinvmodel(1,1))*sf.fcalcm*sf.fcalcm+
       TWO*sf.fcalcp*sf.fcalcm*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff;
 
-    const double cospcalcp = tab.Cos        (sf.pcalcp);
-    const double sinpcalcp = tab.Sin_charged(sf.pcalcp);
-    const double cospcalcm = tab.Cos        (sf.pcalcm);
-    const double sinpcalcm = tab.Sin_charged(sf.pcalcm);
+    const myReal cospcalcp = tab.Cos        (sf.pcalcp);
+    const myReal sinpcalcp = tab.Sin_charged(sf.pcalcp);
+    const myReal cospcalcm = tab.Cos        (sf.pcalcm);
+    const myReal sinpcalcm = tab.Sin_charged(sf.pcalcm);
 
-    const double dldfp = 
+    const myReal dldfp = 
       TWO*(sf.fcalcp*(recovinv(2,2) - recovinvmodel(0,0)) +
           sf.fcalcm*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
-    const double dldfm = 
+    const myReal dldfm = 
       TWO*(sf.fcalcm*(recovinv(3,3) - recovinvmodel(1,1)) +
           sf.fcalcp*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
-    const double dldpp = -TWO*sf.fcalcm*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
-    const double dldpm =  TWO*sf.fcalcp*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
+    const myReal dldpp = -TWO*sf.fcalcm*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
+    const myReal dldpm =  TWO*sf.fcalcp*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
 
 
     dL.Ap = dldfp*cospcalcp - dldpp*sinpcalcp;
@@ -1119,7 +1119,7 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     dL.Am = dldfm*cospcalcm - dldpm*sinpcalcm;
     dL.Bm = dldfm*sinpcalcm + dldpm*cospcalcm;
 
-    const double dLdsd = 
+    const myReal dLdsd = 
       redAdsd(0,0)*sf. datap*sf. datap +
       redAdsd(1,1)*sf. datam*sf. datam +
       redAdsd(2,2)*sf.fcalcp*sf.fcalcp +
@@ -1127,9 +1127,9 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
       TWO         *sf.fcalcp*sf.fcalcm*redAdsd(2,3)*cosdiff;
     dL1.sdluz += wa*dLdsd;
 
-    double temp  = recovinvmodel(0,0) + recovinvmodel(0,1);
-    double temp1 = -eps*temp*temp;
-    double temp2;
+    myReal temp  = recovinvmodel(0,0) + recovinvmodel(0,1);
+    myReal temp1 = -eps*temp*temp;
+    myReal temp2;
 
     Tsad2.stop(tag1); 
 
@@ -1157,10 +1157,10 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
       Tsad2.stop(tag1); 
     }
 
-    double integral(ZERO), totcos(ZERO), totsin(ZERO); 
-    double dldfcalcp(ZERO), dldfcalcm(ZERO), dldpcalcp(ZERO), dldpcalcm(ZERO);
-    double dldsd(ZERO), dldsigh(ZERO), dldsfpp(ZERO);
-    double maxexpval(ZERO);
+    myReal integral(ZERO), totcos(ZERO), totsin(ZERO); 
+    myReal dldfcalcp(ZERO), dldfcalcm(ZERO), dldpcalcp(ZERO), dldpcalcm(ZERO);
+    myReal dldsd(ZERO), dldsigh(ZERO), dldsfpp(ZERO);
+    myReal maxexpval(ZERO);
 
     filter_cnt_all++;
     if (!filter)
@@ -1168,56 +1168,56 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
       filter_cnt++;
       tag1 = Tsad2.start("part2::filter");
       // precalculate arguments in summation/integration      
-      const double dcos1dfp = -TWO    *sf. datam*cospcalcp*recovinv(1,2);
-      const double dcos1dfm = -TWO    *sf. datam*cospcalcm*recovinv(1,3);
+      const myReal dcos1dfp = -TWO    *sf. datam*cospcalcp*recovinv(1,2);
+      const myReal dcos1dfm = -TWO    *sf. datam*cospcalcm*recovinv(1,3);
 
-      const double cos1     = dcos1dfp*sf.fcalcp + dcos1dfm*sf.fcalcm;
+      const myReal cos1     = dcos1dfp*sf.fcalcp + dcos1dfm*sf.fcalcm;
 
-      const double dcos1dpp = TWO*sf.datam*sinpcalcp*recovinv(1,2);
-      const double dcos1dpm = TWO*sf.datam*sinpcalcm*recovinv(1,3); 
+      const myReal dcos1dpp = TWO*sf.datam*sinpcalcp*recovinv(1,2);
+      const myReal dcos1dpm = TWO*sf.datam*sinpcalcm*recovinv(1,3); 
 
-      const double dcos1dsd = -TWO*sf.datam*
+      const myReal dcos1dsd = -TWO*sf.datam*
         (sf.fcalcp*cospcalcp*redAdsd(1,2) +
          sf.fcalcm*cospcalcm*redAdsd(1,3));
-      const double dcos1dsigh = -TWO*sf.datam*
+      const myReal dcos1dsigh = -TWO*sf.datam*
         (sf.fcalcp*cospcalcp*redAdsigh(1,2) +
          sf.fcalcm*cospcalcm*redAdsigh(1,3));
-      const double dcos1dsfpp = -TWO*sf.datam*
+      const myReal dcos1dsfpp = -TWO*sf.datam*
         (sf.fcalcp*cospcalcp*redAdsfpp(1,2) +
          sf.fcalcm*cospcalcm*redAdsfpp(1,3));
 
-      const double dsin1dfp = -TWO*sf.datam*sinpcalcp*recovinv(1,2);
-      const double dsin1dfm = -TWO*sf.datam*sinpcalcm*recovinv(1,3);
+      const myReal dsin1dfp = -TWO*sf.datam*sinpcalcp*recovinv(1,2);
+      const myReal dsin1dfm = -TWO*sf.datam*sinpcalcm*recovinv(1,3);
 
-      const double sin1     = dsin1dfp*sf.fcalcp + dsin1dfm*sf.fcalcm;
+      const myReal sin1     = dsin1dfp*sf.fcalcp + dsin1dfm*sf.fcalcm;
 
-      const double dsin1dpp = -TWO*sf.datam*cospcalcp*recovinv(1,2);
-      const double dsin1dpm = -TWO*sf.datam*cospcalcm*recovinv(1,3);
+      const myReal dsin1dpp = -TWO*sf.datam*cospcalcp*recovinv(1,2);
+      const myReal dsin1dpm = -TWO*sf.datam*cospcalcm*recovinv(1,3);
 
-      const double dsin1dsd = -TWO*sf.datam*
+      const myReal dsin1dsd = -TWO*sf.datam*
         (sf.fcalcp*sinpcalcp*redAdsd(1,2) +
          sf.fcalcm*sinpcalcm*redAdsd(1,3));
-      const double dsin1dsigh = -TWO*sf.datam*
+      const myReal dsin1dsigh = -TWO*sf.datam*
         (sf.fcalcp*sinpcalcp*redAdsigh(1,2) +
          sf.fcalcm*sinpcalcm*redAdsigh(1,3));
-      const double dsin1dsfpp = -TWO*sf.datam*
+      const myReal dsin1dsfpp = -TWO*sf.datam*
         (sf.fcalcp*sinpcalcp*redAdsfpp(1,2) +
          sf.fcalcm*sinpcalcm*redAdsfpp(1,3));
 
       temp = recovinv(0,2)*recovinv(0,3)*cosdiff;
 
-      const double bessarg  = 
+      const myReal bessarg  = 
         recovinv(0,1)*recovinv(0,1) * sf. datam*sf. datam +
         recovinv(0,2)*recovinv(0,2) * sf.fcalcp*sf.fcalcp +
         recovinv(0,3)*recovinv(0,3) * sf.fcalcm*sf.fcalcm +
         TWO                         * sf.fcalcp*sf.fcalcm * temp;
 
-      const double dbessargdfp =  TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,2) + sf.fcalcm*temp);
-      const double dbessargdfm =  TWO*(sf.fcalcm*recovinv(0,3)*recovinv(0,3) + sf.fcalcp*temp);
-      const double dbessargdpp = -TWO*(sf.fcalcm*recovinv(0,2)*recovinv(0,3)*sindiff);
-      const double dbessargdpm  = TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,3)*sindiff);
+      const myReal dbessargdfp =  TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,2) + sf.fcalcm*temp);
+      const myReal dbessargdfm =  TWO*(sf.fcalcm*recovinv(0,3)*recovinv(0,3) + sf.fcalcp*temp);
+      const myReal dbessargdpp = -TWO*(sf.fcalcm*recovinv(0,2)*recovinv(0,3)*sindiff);
+      const myReal dbessargdpm  = TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,3)*sindiff);
 
-      const double dbessargdsd = TWO*(
+      const myReal dbessargdsd = TWO*(
           recovinv(0,1)*redAdsd(0,1) * sf.datam*sf.datam +
           recovinv(0,2)*redAdsd(0,2) * sf.fcalcp*sf.fcalcp +
           recovinv(0,3)*redAdsd(0,3) * sf.fcalcm*sf.fcalcm +
@@ -1225,7 +1225,7 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
             (recovinv(0,2)*redAdsd(0,3) + redAdsd(0,2)*recovinv(0,3))*cosdiff)
           );
 
-      const double dbessargdsigh = TWO*(
+      const myReal dbessargdsigh = TWO*(
           recovinv(0,1)*redAdsigh(0,1) * sf. datam*sf. datam +
           recovinv(0,2)*redAdsigh(0,2) * sf.fcalcp*sf.fcalcp +
           recovinv(0,3)*redAdsigh(0,3) * sf.fcalcm*sf.fcalcm +
@@ -1233,7 +1233,7 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
             (recovinv(0,2)*redAdsigh(0,3) + redAdsigh(0,2)*recovinv(0,3))*cosdiff)
           );
 
-      const double dbessargdsfpp = TWO*(
+      const myReal dbessargdsfpp = TWO*(
           recovinv(0,1)*redAdsfpp(0,1) * sf.datam*sf.datam +
           recovinv(0,2)*redAdsfpp(0,2) * sf.fcalcp*sf.fcalcp +
           recovinv(0,3)*redAdsfpp(0,3) * sf.fcalcm*sf.fcalcm +
@@ -1244,39 +1244,39 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
       temp1 = TWO*sf.datam*recovinv(0,1)*recovinv(0,2);
       temp2 = TWO*sf.datam*recovinv(0,1)*recovinv(0,3);
 
-      const double dcos2dfp = temp1*cospcalcp;
-      const double dcos2dfm = temp2*cospcalcm;
-      const double  cos2    = dcos2dfp*sf.fcalcp + dcos2dfm*sf.fcalcm;
-      const double dcos2dpp = -temp1*sinpcalcp;
-      const double dcos2dpm = -temp2*sinpcalcm;
+      const myReal dcos2dfp = temp1*cospcalcp;
+      const myReal dcos2dfm = temp2*cospcalcm;
+      const myReal  cos2    = dcos2dfp*sf.fcalcp + dcos2dfm*sf.fcalcm;
+      const myReal dcos2dpp = -temp1*sinpcalcp;
+      const myReal dcos2dpm = -temp2*sinpcalcm;
 
-      const double dcos2dsd = TWO*sf.datam*
+      const myReal dcos2dsd = TWO*sf.datam*
         (sf.fcalcp*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*cospcalcp) +
          sf.fcalcm*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*cospcalcm));
 
-      const double dcos2dsigh = TWO*sf.datam*
+      const myReal dcos2dsigh = TWO*sf.datam*
         (sf.fcalcp*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*cospcalcp) +
          sf.fcalcm*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*cospcalcm));
 
-      const double dcos2dsfpp = TWO*sf.datam*
+      const myReal dcos2dsfpp = TWO*sf.datam*
         (sf.fcalcp*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*cospcalcp) +
          sf.fcalcm*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*cospcalcm));
 
-      const double dsin2dfp = temp1*sinpcalcp;
-      const double dsin2dfm = temp2*sinpcalcm;
-      const double  sin2    = dsin2dfp*sf.fcalcp + dsin2dfm*sf.fcalcm;
-      const double dsin2dpp = temp1*cospcalcp;
-      const double dsin2dpm = temp2*cospcalcm;
+      const myReal dsin2dfp = temp1*sinpcalcp;
+      const myReal dsin2dfm = temp2*sinpcalcm;
+      const myReal  sin2    = dsin2dfp*sf.fcalcp + dsin2dfm*sf.fcalcm;
+      const myReal dsin2dpp = temp1*cospcalcp;
+      const myReal dsin2dpm = temp2*cospcalcm;
 
-      const double dsin2dsd = TWO*sf.datam*
+      const myReal dsin2dsd = TWO*sf.datam*
         (sf.fcalcp*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*sinpcalcp) +
          sf.fcalcm*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*sinpcalcm));
 
-      const double dsin2dsigh = TWO*sf.datam*
+      const myReal dsin2dsigh = TWO*sf.datam*
         (sf.fcalcp*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*sinpcalcp) +
          sf.fcalcm*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*sinpcalcm));
 
-      const double dsin2dsfpp = TWO*sf.datam*
+      const myReal dsin2dsfpp = TWO*sf.datam*
         (sf.fcalcp*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*sinpcalcp) +
          sf.fcalcm*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*sinpcalcm));
 
@@ -1288,11 +1288,11 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
       for (unsigned i = 0; i < nSad; i++)
       { 
         Sad &s = sadVec[i];
-        const double bess2    = cos2*s.cos + sin2*s.sin + bessarg;
-        const double tempbess = bess2 > 0.0 ? __sqrt(bess2) : 0.0;
+        const myReal bess2    = cos2*s.cos + sin2*s.sin + bessarg;
+        const myReal tempbess = bess2 > 0.0 ? __sqrt(bess2) : 0.0;
 
-        const double besselarg = TWO*sf.datap*tempbess;
-        const double    exparg = cos1*s.cos + sin1*s.sin + besselarg;
+        const myReal besselarg = TWO*sf.datap*tempbess;
+        const myReal    exparg = cos1*s.cos + sin1*s.sin + besselarg;
 
         s.besselarg = besselarg;
         s.   exparg =    exparg;
@@ -1304,10 +1304,10 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
       {
         const Sad &s = sadVec[i];
 
-        const double     io = tab.I0e(s.besselarg);
-        const double simarg = TWO* sf.datap*sf.datap* tab.Simoverx_preI0(s.besselarg, io);
-        const double   prob = io * tab.ExpM(maxexpval - s.exparg);
-        const double  wprob = prob*s.weight;
+        const myReal     io = tab.I0e(s.besselarg);
+        const myReal simarg = TWO* sf.datap*sf.datap* tab.Simoverx_preI0(s.besselarg, io);
+        const myReal   prob = io * tab.ExpM(maxexpval - s.exparg);
+        const myReal  wprob = prob*s.weight;
         integral += wprob;
         totcos   += wprob*s.cos;
         totsin   += wprob*s.sin;
@@ -1334,7 +1334,7 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
       dL.Am += (dldfcalcm*cospcalcm - dldpcalcm*sinpcalcm) / integral;
       dL.Bm += (dldfcalcm*sinpcalcm + dldpcalcm*cospcalcm) / integral;
 
-      const double dLdsd = 
+      const myReal dLdsd = 
         dldsd / integral +  
         TWO*( recovmodel(0,0)*(recovinv(0,2) + recovinv(1,3)) +
             recovmodel(0,1)*(recovinv(0,3) + recovinv(1,2)) );
@@ -1354,9 +1354,9 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
             (recovinv(0,3) + recovinv(1,2))*sd - recovinvmodel(0,1));	
       }
 
-      const double fom = __sqrt(totcos*totcos + totsin*totsin) / integral;
+      const myReal fom = __sqrt(totcos*totcos + totsin*totsin) / integral;
 
-      double phib = atan2(totsin, totcos);
+      myReal phib = atan2(totsin, totcos);
       if (crystal.centric)
         phib  =  ((cos(phib - crystal.centricphase) >= ZERO) ?
             crystal.centricphase : crystal.centricphase + PI);

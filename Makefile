@@ -40,8 +40,9 @@ endif
 #CXXFLAGS = -I$(CCP4)/include -I$(CCP4)/include/leiden-software/bp3 -I$(CCP4)/include/ccp4 -I$(CCP4)/lib/cctbx/cctbx_sources/cctbx_project/scitbx/sparse
 CXXFLAGS += -I./bp3lib -I$(CCP4)/include -I$(CCP4)/include/ccp4 
 LDFLAGS  =  -L./bp3lib -lbp3  -g -pg
-LDFLAGS += -L$(CCP4)/lib -lccp4f -lccp4c  -lclipper-ccp4 -lclipper-contrib -lclipper-minimol -lclipper-mmdb -lclipper-core -lccif -lmmdb  -lrfftw -lfftw
+LDFLAGS += -L$(CCP4)/lib -lccp4f -lccp4c  -lclipper-ccp4 -lclipper-contrib -lclipper-minimol -lclipper-mmdb -lclipper-core -lccif -lmmdb  -lrfftw  -lfftw
 LDFLAGS += -llapack -lblas 
+# LDFLAGS += -lmkl_core -lmkl_sequential -lmkl_intel_ilp64
 
 SRCPATH = ./
 SRC = bp3main.C functions.C bp3likelihood.C bp3input.C
