@@ -23,7 +23,6 @@
 #include "mytimer.h"
 #include <cmath>
 extern TimerT Tsad, Tsad1, Tsad2;
-extern TimerT Tinverse;
 extern unsigned long long filter_cnt, filter_cnt_all;
 #include "FArray.h"
 
@@ -934,21 +933,17 @@ void my_matrixprod(REAL T[N][N], const REAL A[N][N], const REAL C[N][N])
 template<int NN>
 bool my_inverse(const double in[NN][NN], double out[NN][NN], double &det)
 {
-  const int tagMain = Tinverse.start("Main");
-  
   int errorHandler;
   int     N = NN;
   int lwork = NN*NN;
   char chU[] = "U";
 
-  int tag = Tinverse.start("DPOTRF");
   for (int j = 0; j < NN; j++)
     for (int i = 0; i < NN; i++)
       out[j][i] = in[j][i];
 
   dpotrf_(chU, &N, &out[0][0], &N, &errorHandler);
   assert(errorHandler >= 0);
-  Tinverse.stop(tag);
 
   if (errorHandler > 0)
     return true;
@@ -960,60 +955,76 @@ bool my_inverse(const double in[NN][NN], double out[NN][NN], double &det)
   assert(det > 0.0);
 
 
-  tag = Tinverse.start("DPOTRI");
   dpotri_(chU, &N, &out[0][0], &N, &errorHandler);
   assert(0 == errorHandler);
   for (int i = 0; i < NN; i++)
     for (int j = i; j < NN; j++)
       out[i][j] = out[j][i];
       
-  Tinverse.stop(tag);
-
-  Tinverse.stop(tagMain);
   return false;
 }
 
-  template<int NN>
-bool my_inverse(const float in[NN][NN], float out[NN][NN], float &det)
+#if 0
+template<int N>
+bool my_inverse_gold(const double in[NN][NN], double out[NN][NN], double &det)
 {
-  const int tagMain = Tinverse.start("Main");
-  
-  int errorHandler;
-  int     N = NN;
-  int lwork = NN*NN;
-  char chU[] = "U";
+  // pseudoinverse for real symmetric matrix
+  const int N2 = N*N;
+  double evectors[N2], evalues[N]'
 
-  int tag = Tinverse.start("SPOTRF");
-  for (int j = 0; j < NN; j++)
-    for (int i = 0; i < NN; i++)
-      out[j][i] = in[j][i];
+  double *src= &in[0][0];
+  for (int i = 0; i < N2; i++)
+    evectors[i] = in[i];
 
-  spotrf_(chU, &N, &out[0][0], &N, &errorHandler);
-  assert(errorHandler >= 0);
-  Tinverse.stop(tag);
+  char jobz('V'), uplo('U');
+  int n = N;
+  int lda = N;
 
-  if (errorHandler > 0)
-    return true;
-
-  det = 1.0;
-  for (int i = 0; i < NN; i++)
-    det *= out[i][i];
-  det *= det;
-  assert(det > 0.0);
+  double lawork[N2];
+  double liwork[N2];
+  int info;
 
 
-  tag = Tinverse.start("SPOTRI");
-  spotri_(chU, &N, &out[0][0], &N, &errorHandler);
-  assert(0 == errorHandler);
-  for (int i = 0; i < NN; i++)
-    for (int j = i; j < NN; j++)
-      out[i][j] = out[j][i];
-      
-  Tinverse.stop(tag);
+  FORTRAN_CALL ( DSYEVD, dsyevd,
+      (&jobz, &uplo, &n, &evectors[0], &lda, &evalues[0], &lawork[0],
+       &lwork, &iwork[0], &liwork, &info),
+      (&jobz, &uplo, &n, &evectors[0], &lda, &evalues[0], &lawork[0], 
+       &lwork, &iwork[0], &liwork, &info),
+      (&jobz, &uplo, &n, &evectors[0], &lda, &evalues[0], &lawork[0], 
+       &lwork, &iwork[0], &liwork, &info));
 
-  Tinverse.stop(tagMain);
-  return false;
+  for (unsigned i        = 0; i < ori.rsize(); i++)
+    for (unsigned j      = i; j < ori.csize(); j++)
+    {
+      assert(ori(i,j) == ori(j,i));
+      double recomp(ZERO), recompinv(ZERO);
+      for (unsigned k    = 0; k < ori.rsize(); k++)
+        if (evalues[k]   > MINEIG)
+        {
+          double temp    = evectors[i+ori.rsize()*k]*evectors[j+ori.rsize()*k];
+          recomp        += temp*evalues[k];
+          recompinv     += temp/evalues[k];
+        }
+      ori(i,j)           = recomp;
+      ori(j,i)           = recomp;
+      inv(i,j)           = recompinv;
+      inv(j,i)           = recompinv;
+    }
+
+  det                    = ONE;
+
+  bool filter(false);
+
+  for (unsigned i        = 0; i < ori.rsize(); i++)
+  {
+    if (evalues[i]       < MINEIG)
+      filter             = true;
+    det                 *= (evalues[i] < MINEIG) ? MINEIG : evalues[i];
+  }
+  return filter;  
 }
+#endif
+
 
 
 double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
@@ -1066,10 +1077,10 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
   const int tagP = Tsad2.start("Prepare");
 
   const int nSad = sadweight.size();
-  Sad::Vector sadVec;
-  sadVec.reserve(nSad);
+  Sad::Vector sadVecS;
+  sadVecS.reserve(nSad);
   for (int i = 0; i < nSad; i++)
-    sadVec.push_back(Sad(sadsin[i], sadcos[i], sadweight[i]));
+    sadVecS.push_back(Sad(sadsin[i], sadcos[i], sadweight[i]));
 
   CrystalLight::Vector crystalVec;
   SfLight     ::Vector      sfVec;
@@ -1077,7 +1088,8 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
   const int nRefl = xtal.maxselref;
   crystalVec.reserve(nRefl);
        sfVec.reserve(nRefl);
-       
+  
+  int saMax = 0.0;
   for (int r = 0; r < nRefl; r++)
   {
     crystalVec.push_back( CrystalLight(
@@ -1086,6 +1098,7 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
           xtal.centric[r],
           xtal.epsilon[r],
           xtal.centricphase[r]) );
+    saMax = std::max(saMax, crystalVec.back().sa+1);
     sfVec.push_back( SfLight(
           xtal.sf[d].  devp[r], xtal.sf[d].  devm[r],
           xtal.sf[d].pcalcp[r], xtal.sf[d].pcalcm[r],
@@ -1095,456 +1108,473 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
 
   Tsad2.stop(tagP);
 
-  for (unsigned r = 0; r < xtal.maxselref; r++)
+#pragma omp parallel
   {
-    int tag1 = Tsad2.start("part2::01");
-    // Default value for columns to be written out is MNF
+    TabFunc<myReal> tab;
+    std::vector<DLd1> dL1(saMax, 0.0);
+    myReal likelihood_local = 0;
+    Sad::Vector sadVec(sadVecS);
+    
+    std::vector<myReal> cfom_loc(saMax, 0.0), afom_loc(saMax, 0.0);
+    std::vector<unsigned int> cnshl_loc(saMax, 0), anshl_loc(saMax, 0);
 
-    DLd  dL (0.0);
-    DLd1 dL1(0.0);
-
-    const CrystalLight &crystal = crystalVec[r];
-    const      SfLight      &sf =      sfVec[r];
-
-    if (!crystal.use() || crystal.centric)
-      continue;
-
-    Tsad2.stop(tag1);
-
-    tag1 = Tsad2.start("part2::02");
-#if 0
-    const float  feps = (float)xtal.epsilon[r];
-    const myReal eps  = (myReal)feps;
-    const unsigned sa =         xtal.bin(d,r);
-#else
-    const myReal eps = (myReal)crystal.eps;
-    const int     sa =         crystal.sa;
-#endif
-
-    /* eg01: tuned beg */
-
-    // epsilon correct model covariance
-    const myReal tmodel[2][2] = 
+#pragma omp for schedule(dynamic) nowait
+    for (unsigned r = 0; r < xtal.maxselref; r++)
     {
-      {covmodel[sa](0,0)*eps, covmodel[sa](0,1)*eps},
-      {covmodel[sa](1,0)*eps, covmodel[sa](1,1)*eps},
-    };
+      //      int tag1 = Tsad2.start("part2::01");
+      // Default value for columns to be written out is MNF
 
-    const FArray2D<myReal,2,2> recovmodel(&tmodel[0][0]);
+      DLd  dL (0.0);
 
-    const myReal tinvmodel[2][2]=
-    {
-      {covinvmodel[sa](0,0)/eps, covinvmodel[sa](0,1)/eps},
-      {covinvmodel[sa](1,0)/eps, covinvmodel[sa](1,1)/eps},
-    };
-    const FArray2D<myReal,2,2> recovinvmodel(&tinvmodel[0][0]);
+      const CrystalLight &crystal = crystalVec[r];
+      const      SfLight      &sf =      sfVec[r];
 
-    const myReal det2 = detmodel[sa]*eps*eps;
-
-    myReal           sd = xtal.sf[d]. sdluz[sa];
-    const myReal sigmah = xtal.sf[d].sigmah[sa];
-    const myReal sigman = xtal.sf[d].sigman[sa];
-    const myReal sfpp   = sumfpp[d][d][sa];
-
-    const myReal wa(ONE);
-
-    Tsad2.stop(tag1);
-
-    const int tagCounts = Tsad2.start("counts");
-    tag1 = Tsad2.start("part2::03");
-    // total covariance matrices
-
-    const myReal cov[4][4] = 
-    {
-      {eps*sigman+sf.devp*sf.devp, eps*(sigman-sfpp), sd*recovmodel(0,0), sd*recovmodel(0,1)},
-      {eps*(sigman-sfpp), eps*sigman+sf.devm*sf.devm, sd*recovmodel(0,1), sd*recovmodel(0,0)},
-      {sd*recovmodel(0,0), sd*recovmodel(0,1), recovmodel(0,0),    recovmodel(0,1)},
-      {sd*recovmodel(0,1), sd*recovmodel(0,0), recovmodel(0,1),    recovmodel(0,0)}
-    };      
-    const FArray2D<myReal,4,4> recov(&cov[0][0]);
-
-    myReal covinv[4][4];
-    FArray2D<myReal,4,4> recovinv(&covinv[0][0]);
-
-    myReal det4(ONE);
-
-    int tagMatrix = Tsad2.start("Inverse");
-    bool filter = my_inverse<4>(cov, covinv,det4);
-    if (filter)
-    {
-      Matrix ori(4), inv(4);
-      for (int j = 0; j < 4; j++)
-        for (int i = 0; i < 4; i++)
-          ori(i,j) = recov(i,j);
-      double det4a = 1;
-      filter = inverse_gold(ori, inv, det4a);
-      det4 = det4a;
-      for (int j = 0; j < 4; j++)
-        for (int i = 0; i < 4; i++)
-          recovinv(i,j) = inv(i,j);
-    }
-    Tsad2.stop(tagMatrix);
-
-
-    Tsad2.stop(tag1);
-    tag1 = Tsad2.start("part2::04");
-
-    // derivatives of the matrices
-    // wrt sdluz
-
-    const myReal rtmp1[4][4] = 
-    {
-      {ZERO, ZERO, -recovmodel(0,0), -recovmodel(0,1)},
-      {ZERO, ZERO, -recovmodel(0,1), -recovmodel(0,0)},
-      {-recovmodel(0,0), -recovmodel(0,1), ZERO, ZERO},
-      {-recovmodel(0,1), -recovmodel(0,0), ZERO, ZERO}
-    };
-
-
-    myReal redAdsdA  [4][4];
-    myReal redAdsighA[4][4];
-    myReal redAdsfppA[4][4];
-    FArray2D<myReal,4,4> redAdsd  (&redAdsdA  [0][0]);
-    FArray2D<myReal,4,4> redAdsigh(&redAdsighA[0][0]);
-    FArray2D<myReal,4,4> redAdsfpp(&redAdsfppA[0][0]);
-
-
-    my_matrixprod(redAdsdA, covinv, rtmp1);
-
-    const myReal rtmp2[4][4] = 
-    {
-      {ZERO, ZERO, -eps*sd, -eps*sd},
-      {ZERO, ZERO, -eps*sd, -eps*sd},
-      {-eps*sd, -eps*sd, -eps, -eps},
-      {-eps*sd, -eps*sd, -eps, -eps}
-    };
-
-    my_matrixprod(redAdsighA, covinv,rtmp2);
-
-    // wrt sumfpp
-
-    const myReal rtmp3[4][4] = 
-    {
-      {ZERO, TWO*eps, ZERO, TWO*eps*sd},
-      {TWO*eps, ZERO, TWO*eps*sd, ZERO},
-      {ZERO, TWO*eps*sd, ZERO, TWO*eps},
-      {TWO*eps*sd, ZERO, TWO*eps, ZERO}
-    };
-
-    my_matrixprod(redAdsfppA, covinv,rtmp3);
-
-    Tsad2.stop(tag1);
-    /* eg01: tuned end */
-
-    tag1 = Tsad2.start("part2::05");
-
-    const myReal cosdiff = tab.Cos        (sf.pcalcp - sf.pcalcm);
-    const myReal sindiff = tab.Sin_charged(sf.pcalcp - sf.pcalcm);  
-
-    myReal likelihood_local = 
-      recovinv(0,0)*sf.datap*sf.datap+
-      recovinv(1,1)*sf.datam*sf.datam+
-      (recovinv(2,2) - recovinvmodel(0,0))*sf.fcalcp*sf.fcalcp +
-      (recovinv(3,3) - recovinvmodel(1,1))*sf.fcalcm*sf.fcalcm+
-      TWO*sf.fcalcp*sf.fcalcm*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff;
-
-    const myReal cospcalcp = tab.Cos        (sf.pcalcp);
-    const myReal sinpcalcp = tab.Sin_charged(sf.pcalcp);
-    const myReal cospcalcm = tab.Cos        (sf.pcalcm);
-    const myReal sinpcalcm = tab.Sin_charged(sf.pcalcm);
-
-    const myReal dldfp = 
-      TWO*(sf.fcalcp*(recovinv(2,2) - recovinvmodel(0,0)) +
-          sf.fcalcm*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
-    const myReal dldfm = 
-      TWO*(sf.fcalcm*(recovinv(3,3) - recovinvmodel(1,1)) +
-          sf.fcalcp*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
-    const myReal dldpp = -TWO*sf.fcalcm*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
-    const myReal dldpm =  TWO*sf.fcalcp*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
-
-
-    dL.Ap = dldfp*cospcalcp - dldpp*sinpcalcp;
-    dL.Bp = dldfp*sinpcalcp + dldpp*cospcalcp;
-    dL.Am = dldfm*cospcalcm - dldpm*sinpcalcm;
-    dL.Bm = dldfm*sinpcalcm + dldpm*cospcalcm;
-
-    const myReal dLdsd = 
-      redAdsd(0,0)*sf. datap*sf. datap +
-      redAdsd(1,1)*sf. datam*sf. datam +
-      redAdsd(2,2)*sf.fcalcp*sf.fcalcp +
-      redAdsd(3,3)*sf.fcalcm*sf.fcalcm +
-      TWO         *sf.fcalcp*sf.fcalcm*redAdsd(2,3)*cosdiff;
-    dL1.sdluz += wa*dLdsd;
-
-    myReal temp  = recovinvmodel(0,0) + recovinvmodel(0,1);
-    myReal temp1 = -eps*temp*temp;
-    myReal temp2;
-
-    Tsad2.stop(tag1); 
-
-    if (updatesigmah)
-    {
-      tag1 = Tsad2.start("part2::updatesigmah");
-
-      dL1.sigmah += 
-        redAdsigh(0,0)          * sf. datap*sf. datap +
-        redAdsigh(1,1)          * sf. datam*sf. datam +
-        (redAdsigh(2,2) - temp1) * sf.fcalcp*sf.fcalcp +
-        (redAdsigh(3,3) - temp1) * sf.fcalcm*sf.fcalcm +
-        TWO*sf.fcalcp * sf.fcalcm*(redAdsigh(2,3) - temp1)*cosdiff;
-
-      temp1 = TWO*eps*(recovinvmodel(0,0)*recovinvmodel(0,0) + recovinvmodel(0,1)*recovinvmodel(0,1));
-      temp2 = FOUR*eps*recovinvmodel(0,0)*recovinvmodel(0,1);
-
-      dL1.sumfpp += 
-        redAdsfpp(0,0)          * sf. datap*sf. datap +
-        redAdsfpp(1,1)          * sf. datam*sf. datam +
-        (redAdsfpp(2,2) - temp2) * sf.fcalcp*sf.fcalcp +
-        (redAdsfpp(3,3) - temp2) * sf.fcalcm*sf.fcalcm +
-        TWO*sf.fcalcp * sf.fcalcm*(redAdsfpp(2,3) - temp1)*cosdiff;
-
-      Tsad2.stop(tag1); 
-    }
-
-    myReal integral(ZERO), totcos(ZERO), totsin(ZERO); 
-    myReal dldfcalcp(ZERO), dldfcalcm(ZERO), dldpcalcp(ZERO), dldpcalcm(ZERO);
-    myReal dldsd(ZERO), dldsigh(ZERO), dldsfpp(ZERO);
-    myReal maxexpval(ZERO);
-
-    filter_cnt_all++;
-    if (!filter)
-    {
-      filter_cnt++;
-      tag1 = Tsad2.start("part2::filter");
-
-      int tag2 = Tsad2.start("part2::filter::01");
-      // precalculate arguments in summation/integration      
-      const myReal dcos1dfp = -TWO    *sf. datam*cospcalcp*recovinv(1,2);
-      const myReal dcos1dfm = -TWO    *sf. datam*cospcalcm*recovinv(1,3);
-
-      const myReal cos1     = dcos1dfp*sf.fcalcp + dcos1dfm*sf.fcalcm;
-
-      const myReal dcos1dpp = TWO*sf.datam*sinpcalcp*recovinv(1,2);
-      const myReal dcos1dpm = TWO*sf.datam*sinpcalcm*recovinv(1,3); 
-
-      const myReal dcos1dsd = -TWO*sf.datam*
-        (sf.fcalcp*cospcalcp*redAdsd(1,2) +
-         sf.fcalcm*cospcalcm*redAdsd(1,3));
-      const myReal dcos1dsigh = -TWO*sf.datam*
-        (sf.fcalcp*cospcalcp*redAdsigh(1,2) +
-         sf.fcalcm*cospcalcm*redAdsigh(1,3));
-      const myReal dcos1dsfpp = -TWO*sf.datam*
-        (sf.fcalcp*cospcalcp*redAdsfpp(1,2) +
-         sf.fcalcm*cospcalcm*redAdsfpp(1,3));
-
-      const myReal dsin1dfp = -TWO*sf.datam*sinpcalcp*recovinv(1,2);
-      const myReal dsin1dfm = -TWO*sf.datam*sinpcalcm*recovinv(1,3);
-
-      const myReal sin1     = dsin1dfp*sf.fcalcp + dsin1dfm*sf.fcalcm;
-
-      const myReal dsin1dpp = -TWO*sf.datam*cospcalcp*recovinv(1,2);
-      const myReal dsin1dpm = -TWO*sf.datam*cospcalcm*recovinv(1,3);
-
-      const myReal dsin1dsd = -TWO*sf.datam*
-        (sf.fcalcp*sinpcalcp*redAdsd(1,2) +
-         sf.fcalcm*sinpcalcm*redAdsd(1,3));
-      const myReal dsin1dsigh = -TWO*sf.datam*
-        (sf.fcalcp*sinpcalcp*redAdsigh(1,2) +
-         sf.fcalcm*sinpcalcm*redAdsigh(1,3));
-      const myReal dsin1dsfpp = -TWO*sf.datam*
-        (sf.fcalcp*sinpcalcp*redAdsfpp(1,2) +
-         sf.fcalcm*sinpcalcm*redAdsfpp(1,3));
-
-      temp = recovinv(0,2)*recovinv(0,3)*cosdiff;
-
-      const myReal bessarg  = 
-        recovinv(0,1)*recovinv(0,1) * sf. datam*sf. datam +
-        recovinv(0,2)*recovinv(0,2) * sf.fcalcp*sf.fcalcp +
-        recovinv(0,3)*recovinv(0,3) * sf.fcalcm*sf.fcalcm +
-        TWO                         * sf.fcalcp*sf.fcalcm * temp;
-
-      Tsad2.stop(tag2);
-      tag2 = Tsad2.start("part2::filter::02");
-
-      const myReal dbessargdfp =  TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,2) + sf.fcalcm*temp);
-      const myReal dbessargdfm =  TWO*(sf.fcalcm*recovinv(0,3)*recovinv(0,3) + sf.fcalcp*temp);
-      const myReal dbessargdpp = -TWO*(sf.fcalcm*recovinv(0,2)*recovinv(0,3)*sindiff);
-      const myReal dbessargdpm  = TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,3)*sindiff);
-
-      const myReal dbessargdsd = TWO*(
-          recovinv(0,1)*redAdsd(0,1) * sf.datam*sf.datam +
-          recovinv(0,2)*redAdsd(0,2) * sf.fcalcp*sf.fcalcp +
-          recovinv(0,3)*redAdsd(0,3) * sf.fcalcm*sf.fcalcm +
-          sf.fcalcp*sf.fcalcm * (
-            (recovinv(0,2)*redAdsd(0,3) + redAdsd(0,2)*recovinv(0,3))*cosdiff)
-          );
-
-      const myReal dbessargdsigh = TWO*(
-          recovinv(0,1)*redAdsigh(0,1) * sf. datam*sf. datam +
-          recovinv(0,2)*redAdsigh(0,2) * sf.fcalcp*sf.fcalcp +
-          recovinv(0,3)*redAdsigh(0,3) * sf.fcalcm*sf.fcalcm +
-          sf.fcalcp*sf.fcalcm * (
-            (recovinv(0,2)*redAdsigh(0,3) + redAdsigh(0,2)*recovinv(0,3))*cosdiff)
-          );
-
-      const myReal dbessargdsfpp = TWO*(
-          recovinv(0,1)*redAdsfpp(0,1) * sf.datam*sf.datam +
-          recovinv(0,2)*redAdsfpp(0,2) * sf.fcalcp*sf.fcalcp +
-          recovinv(0,3)*redAdsfpp(0,3) * sf.fcalcm*sf.fcalcm +
-          sf.fcalcp*sf.fcalcm * (
-            (recovinv(0,2)*redAdsfpp(0,3) + redAdsfpp(0,2)*recovinv(0,3))*cosdiff)
-          );
-
-      temp1 = TWO*sf.datam*recovinv(0,1)*recovinv(0,2);
-      temp2 = TWO*sf.datam*recovinv(0,1)*recovinv(0,3);
-
-      const myReal dcos2dfp = temp1*cospcalcp;
-      const myReal dcos2dfm = temp2*cospcalcm;
-      const myReal  cos2    = dcos2dfp*sf.fcalcp + dcos2dfm*sf.fcalcm;
-      const myReal dcos2dpp = -temp1*sinpcalcp;
-      const myReal dcos2dpm = -temp2*sinpcalcm;
-
-      const myReal dcos2dsd = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*cospcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*cospcalcm));
-
-      const myReal dcos2dsigh = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*cospcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*cospcalcm));
-
-      const myReal dcos2dsfpp = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*cospcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*cospcalcm));
-
-      const myReal dsin2dfp = temp1*sinpcalcp;
-      const myReal dsin2dfm = temp2*sinpcalcm;
-      const myReal  sin2    = dsin2dfp*sf.fcalcp + dsin2dfm*sf.fcalcm;
-      const myReal dsin2dpp = temp1*cospcalcp;
-      const myReal dsin2dpm = temp2*cospcalcm;
-
-      const myReal dsin2dsd = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*sinpcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*sinpcalcm));
-
-      const myReal dsin2dsigh = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*sinpcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*sinpcalcm));
-
-      const myReal dsin2dsfpp = TWO*sf.datam*
-        (sf.fcalcp*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*sinpcalcp) +
-         sf.fcalcm*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*sinpcalcm));
-
-      Tsad2.stop(tag2);
-      tag2 = Tsad2.start("part2::filter::03");
-
-      // For stability in the numerical integral, calculate the maximum value
-      // of the exponential.  And, since all the values are calculated, store
-      // the arguments of exponential and the bessel functions in arrays.
-
-      for (unsigned i = 0; i < nSad; i++)
-      { 
-        Sad &s = sadVec[i];
-        const myReal bess2    = cos2*s.cos + sin2*s.sin + bessarg;
-        const myReal tempbess = bess2 > 0.0 ? __sqrt(bess2) : 0.0;
-
-        const myReal besselarg = TWO*sf.datap*tempbess;
-        const myReal    exparg = cos1*s.cos + sin1*s.sin + besselarg;
-
-        s.besselarg = besselarg;
-        s.   exparg =    exparg;
-
-        maxexpval = exparg > maxexpval ? exparg : maxexpval;
-      }
-
-      for (unsigned i = 0; i < nSad; i++)
+      if (!(!crystal.use() || crystal.centric))
       {
-        const Sad &s = sadVec[i];
+        //      Tsad2.stop(tag1);
 
-        const myReal     io = tab.I0e(s.besselarg);
-        const myReal simarg = TWO* sf.datap*sf.datap* tab.Simoverx_preI0(s.besselarg, io);
-        const myReal   prob = io * tab.ExpM(maxexpval - s.exparg);
-        const myReal  wprob = prob*s.weight;
-        integral += wprob;
-        totcos   += wprob*s.cos;
-        totsin   += wprob*s.sin;
+        //      tag1 = Tsad2.start("part2::02");
+        const myReal eps = (myReal)crystal.eps;
+        const int     sa =         crystal.sa;
 
-        dldfcalcp -= ((dbessargdfp   + dcos2dfp  *s.cos + dsin2dfp  *s.sin)*simarg + (dcos1dfp  *s.cos + dsin1dfp  *s.sin))*wprob;
-        dldfcalcm -= ((dbessargdfm   + dcos2dfm  *s.cos + dsin2dfm  *s.sin)*simarg + (dcos1dfm  *s.cos + dsin1dfm  *s.sin))*wprob;
-        dldpcalcp -= ((dbessargdpp   + dcos2dpp  *s.cos + dsin2dpp  *s.sin)*simarg + (dcos1dpp  *s.cos + dsin1dpp  *s.sin))*wprob; 
-        dldpcalcm -= ((dbessargdpm   + dcos2dpm  *s.cos + dsin2dpm  *s.sin)*simarg + (dcos1dpm  *s.cos + dsin1dpm  *s.sin))*wprob;
-        dldsd     -= ((dbessargdsd   + dcos2dsd  *s.cos + dsin2dsd  *s.sin)*simarg + (dcos1dsd  *s.cos + dsin1dsd  *s.sin))*wprob;
-        dldsigh   -= ((dbessargdsigh + dcos2dsigh*s.cos + dsin2dsigh*s.sin)*simarg + (dcos1dsigh*s.cos + dsin1dsigh*s.sin))*wprob;
-        dldsfpp   -= ((dbessargdsfpp + dcos2dsfpp*s.cos + dsin2dsfpp*s.sin)*simarg + (dcos1dsfpp*s.cos + dsin1dsfpp*s.sin))*wprob;
+        /* eg01: tuned beg */
+
+        // epsilon correct model covariance
+        const myReal tmodel[2][2] = 
+        {
+          {covmodel[sa](0,0)*eps, covmodel[sa](0,1)*eps},
+          {covmodel[sa](1,0)*eps, covmodel[sa](1,1)*eps},
+        };
+
+        const FArray2D<myReal,2,2> recovmodel(&tmodel[0][0]);
+
+        const myReal tinvmodel[2][2]=
+        {
+          {covinvmodel[sa](0,0)/eps, covinvmodel[sa](0,1)/eps},
+          {covinvmodel[sa](1,0)/eps, covinvmodel[sa](1,1)/eps},
+        };
+        const FArray2D<myReal,2,2> recovinvmodel(&tinvmodel[0][0]);
+
+        const myReal det2 = detmodel[sa]*eps*eps;
+
+        myReal           sd = xtal.sf[d]. sdluz[sa];
+        const myReal sigmah = xtal.sf[d].sigmah[sa];
+        const myReal sigman = xtal.sf[d].sigman[sa];
+        const myReal sfpp   = sumfpp[d][d][sa];
+
+        const myReal wa(ONE);
+
+        //      Tsad2.stop(tag1);
+
+        //      const int tagCounts = Tsad2.start("counts");
+        //      tag1 = Tsad2.start("part2::03");
+        // total covariance matrices
+
+        const myReal cov[4][4] = 
+        {
+          {eps*sigman+sf.devp*sf.devp, eps*(sigman-sfpp), sd*recovmodel(0,0), sd*recovmodel(0,1)},
+          {eps*(sigman-sfpp), eps*sigman+sf.devm*sf.devm, sd*recovmodel(0,1), sd*recovmodel(0,0)},
+          {sd*recovmodel(0,0), sd*recovmodel(0,1), recovmodel(0,0),    recovmodel(0,1)},
+          {sd*recovmodel(0,1), sd*recovmodel(0,0), recovmodel(0,1),    recovmodel(0,0)}
+        };      
+        const FArray2D<myReal,4,4> recov(&cov[0][0]);
+
+        myReal covinv[4][4];
+        FArray2D<myReal,4,4> recovinv(&covinv[0][0]);
+
+        myReal det4(ONE);
+
+        //      int tagMatrix = Tsad2.start("Inverse");
+        bool filter = my_inverse<4>(cov, covinv,det4);
+#pragma omp critical
+        if (filter)
+        {
+          Matrix ori(4), inv(4);
+          for (int j = 0; j < 4; j++)
+            for (int i = 0; i < 4; i++)
+              ori(i,j) = recov(i,j);
+          double det4a = 1;
+          filter = inverse_gold(ori, inv, det4a);
+          det4 = det4a;
+          for (int j = 0; j < 4; j++)
+            for (int i = 0; i < 4; i++)
+              recovinv(i,j) = inv(i,j);
+        }
+        //      Tsad2.stop(tagMatrix);
+
+
+        //      Tsad2.stop(tag1);
+        //      tag1 = Tsad2.start("part2::04");
+
+        // derivatives of the matrices
+        // wrt sdluz
+
+        const myReal rtmp1[4][4] = 
+        {
+          {ZERO, ZERO, -recovmodel(0,0), -recovmodel(0,1)},
+          {ZERO, ZERO, -recovmodel(0,1), -recovmodel(0,0)},
+          {-recovmodel(0,0), -recovmodel(0,1), ZERO, ZERO},
+          {-recovmodel(0,1), -recovmodel(0,0), ZERO, ZERO}
+        };
+
+
+        myReal redAdsdA  [4][4];
+        myReal redAdsighA[4][4];
+        myReal redAdsfppA[4][4];
+        FArray2D<myReal,4,4> redAdsd  (&redAdsdA  [0][0]);
+        FArray2D<myReal,4,4> redAdsigh(&redAdsighA[0][0]);
+        FArray2D<myReal,4,4> redAdsfpp(&redAdsfppA[0][0]);
+
+
+        my_matrixprod(redAdsdA, covinv, rtmp1);
+
+        const myReal rtmp2[4][4] = 
+        {
+          {ZERO, ZERO, -eps*sd, -eps*sd},
+          {ZERO, ZERO, -eps*sd, -eps*sd},
+          {-eps*sd, -eps*sd, -eps, -eps},
+          {-eps*sd, -eps*sd, -eps, -eps}
+        };
+
+        my_matrixprod(redAdsighA, covinv,rtmp2);
+
+        // wrt sumfpp
+
+        const myReal rtmp3[4][4] = 
+        {
+          {ZERO, TWO*eps, ZERO, TWO*eps*sd},
+          {TWO*eps, ZERO, TWO*eps*sd, ZERO},
+          {ZERO, TWO*eps*sd, ZERO, TWO*eps},
+          {TWO*eps*sd, ZERO, TWO*eps, ZERO}
+        };
+
+        my_matrixprod(redAdsfppA, covinv,rtmp3);
+
+        //      Tsad2.stop(tag1);
+        /* eg01: tuned end */
+
+        //      tag1 = Tsad2.start("part2::05");
+
+        const myReal cosdiff = tab.Cos        (sf.pcalcp - sf.pcalcm);
+        const myReal sindiff = tab.Sin_charged(sf.pcalcp - sf.pcalcm);  
+
+        likelihood_local +=
+          recovinv(0,0)*sf.datap*sf.datap+
+          recovinv(1,1)*sf.datam*sf.datam+
+          (recovinv(2,2) - recovinvmodel(0,0))*sf.fcalcp*sf.fcalcp +
+          (recovinv(3,3) - recovinvmodel(1,1))*sf.fcalcm*sf.fcalcm+
+          TWO*sf.fcalcp*sf.fcalcm*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff;
+
+        const myReal cospcalcp = tab.Cos        (sf.pcalcp);
+        const myReal sinpcalcp = tab.Sin_charged(sf.pcalcp);
+        const myReal cospcalcm = tab.Cos        (sf.pcalcm);
+        const myReal sinpcalcm = tab.Sin_charged(sf.pcalcm);
+
+        const myReal dldfp = 
+          TWO*(sf.fcalcp*(recovinv(2,2) - recovinvmodel(0,0)) +
+              sf.fcalcm*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
+        const myReal dldfm = 
+          TWO*(sf.fcalcm*(recovinv(3,3) - recovinvmodel(1,1)) +
+              sf.fcalcp*(recovinv(2,3) - recovinvmodel(0,1))*cosdiff);
+        const myReal dldpp = -TWO*sf.fcalcm*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
+        const myReal dldpm =  TWO*sf.fcalcp*(recovinv(2,3)-recovinvmodel(0,1))*sindiff;
+
+
+        dL.Ap = dldfp*cospcalcp - dldpp*sinpcalcp;
+        dL.Bp = dldfp*sinpcalcp + dldpp*cospcalcp;
+        dL.Am = dldfm*cospcalcm - dldpm*sinpcalcm;
+        dL.Bm = dldfm*sinpcalcm + dldpm*cospcalcm;
+
+        const myReal dLdsd = 
+          redAdsd(0,0)*sf. datap*sf. datap +
+          redAdsd(1,1)*sf. datam*sf. datam +
+          redAdsd(2,2)*sf.fcalcp*sf.fcalcp +
+          redAdsd(3,3)*sf.fcalcm*sf.fcalcm +
+          TWO         *sf.fcalcp*sf.fcalcm*redAdsd(2,3)*cosdiff;
+        dL1[sa].sdluz += wa*dLdsd;
+
+        myReal temp  = recovinvmodel(0,0) + recovinvmodel(0,1);
+        myReal temp1 = -eps*temp*temp;
+        myReal temp2;
+
+        //      Tsad2.stop(tag1); 
+
+        if (updatesigmah)
+        {
+          //        tag1 = Tsad2.start("part2::updatesigmah");
+
+          dL1[sa].sigmah += 
+            redAdsigh(0,0)          * sf. datap*sf. datap +
+            redAdsigh(1,1)          * sf. datam*sf. datam +
+            (redAdsigh(2,2) - temp1) * sf.fcalcp*sf.fcalcp +
+            (redAdsigh(3,3) - temp1) * sf.fcalcm*sf.fcalcm +
+            TWO*sf.fcalcp * sf.fcalcm*(redAdsigh(2,3) - temp1)*cosdiff;
+
+          temp1 = TWO*eps*(recovinvmodel(0,0)*recovinvmodel(0,0) + recovinvmodel(0,1)*recovinvmodel(0,1));
+          temp2 = FOUR*eps*recovinvmodel(0,0)*recovinvmodel(0,1);
+
+          dL1[sa].sumfpp += 
+            redAdsfpp(0,0)          * sf. datap*sf. datap +
+            redAdsfpp(1,1)          * sf. datam*sf. datam +
+            (redAdsfpp(2,2) - temp2) * sf.fcalcp*sf.fcalcp +
+            (redAdsfpp(3,3) - temp2) * sf.fcalcm*sf.fcalcm +
+            TWO*sf.fcalcp * sf.fcalcm*(redAdsfpp(2,3) - temp1)*cosdiff;
+
+          //        Tsad2.stop(tag1); 
+        }
+
+        myReal integral(ZERO), totcos(ZERO), totsin(ZERO); 
+        myReal dldfcalcp(ZERO), dldfcalcm(ZERO), dldpcalcp(ZERO), dldpcalcm(ZERO);
+        myReal dldsd(ZERO), dldsigh(ZERO), dldsfpp(ZERO);
+        myReal maxexpval(ZERO);
+
+        filter_cnt_all++;
+        if (!filter)
+        {
+          filter_cnt++;
+          //        tag1 = Tsad2.start("part2::filter");
+
+          //        int tag2 = Tsad2.start("part2::filter::01");
+          // precalculate arguments in summation/integration      
+          const myReal dcos1dfp = -TWO    *sf. datam*cospcalcp*recovinv(1,2);
+          const myReal dcos1dfm = -TWO    *sf. datam*cospcalcm*recovinv(1,3);
+
+          const myReal cos1     = dcos1dfp*sf.fcalcp + dcos1dfm*sf.fcalcm;
+
+          const myReal dcos1dpp = TWO*sf.datam*sinpcalcp*recovinv(1,2);
+          const myReal dcos1dpm = TWO*sf.datam*sinpcalcm*recovinv(1,3); 
+
+          const myReal dcos1dsd = -TWO*sf.datam*
+            (sf.fcalcp*cospcalcp*redAdsd(1,2) +
+             sf.fcalcm*cospcalcm*redAdsd(1,3));
+          const myReal dcos1dsigh = -TWO*sf.datam*
+            (sf.fcalcp*cospcalcp*redAdsigh(1,2) +
+             sf.fcalcm*cospcalcm*redAdsigh(1,3));
+          const myReal dcos1dsfpp = -TWO*sf.datam*
+            (sf.fcalcp*cospcalcp*redAdsfpp(1,2) +
+             sf.fcalcm*cospcalcm*redAdsfpp(1,3));
+
+          const myReal dsin1dfp = -TWO*sf.datam*sinpcalcp*recovinv(1,2);
+          const myReal dsin1dfm = -TWO*sf.datam*sinpcalcm*recovinv(1,3);
+
+          const myReal sin1     = dsin1dfp*sf.fcalcp + dsin1dfm*sf.fcalcm;
+
+          const myReal dsin1dpp = -TWO*sf.datam*cospcalcp*recovinv(1,2);
+          const myReal dsin1dpm = -TWO*sf.datam*cospcalcm*recovinv(1,3);
+
+          const myReal dsin1dsd = -TWO*sf.datam*
+            (sf.fcalcp*sinpcalcp*redAdsd(1,2) +
+             sf.fcalcm*sinpcalcm*redAdsd(1,3));
+          const myReal dsin1dsigh = -TWO*sf.datam*
+            (sf.fcalcp*sinpcalcp*redAdsigh(1,2) +
+             sf.fcalcm*sinpcalcm*redAdsigh(1,3));
+          const myReal dsin1dsfpp = -TWO*sf.datam*
+            (sf.fcalcp*sinpcalcp*redAdsfpp(1,2) +
+             sf.fcalcm*sinpcalcm*redAdsfpp(1,3));
+
+          temp = recovinv(0,2)*recovinv(0,3)*cosdiff;
+
+          const myReal bessarg  = 
+            recovinv(0,1)*recovinv(0,1) * sf. datam*sf. datam +
+            recovinv(0,2)*recovinv(0,2) * sf.fcalcp*sf.fcalcp +
+            recovinv(0,3)*recovinv(0,3) * sf.fcalcm*sf.fcalcm +
+            TWO                         * sf.fcalcp*sf.fcalcm * temp;
+
+          //        Tsad2.stop(tag2);
+          //       tag2 = Tsad2.start("part2::filter::02");
+
+          const myReal dbessargdfp =  TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,2) + sf.fcalcm*temp);
+          const myReal dbessargdfm =  TWO*(sf.fcalcm*recovinv(0,3)*recovinv(0,3) + sf.fcalcp*temp);
+          const myReal dbessargdpp = -TWO*(sf.fcalcm*recovinv(0,2)*recovinv(0,3)*sindiff);
+          const myReal dbessargdpm  = TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,3)*sindiff);
+
+          const myReal dbessargdsd = TWO*(
+              recovinv(0,1)*redAdsd(0,1) * sf.datam*sf.datam +
+              recovinv(0,2)*redAdsd(0,2) * sf.fcalcp*sf.fcalcp +
+              recovinv(0,3)*redAdsd(0,3) * sf.fcalcm*sf.fcalcm +
+              sf.fcalcp*sf.fcalcm * (
+                (recovinv(0,2)*redAdsd(0,3) + redAdsd(0,2)*recovinv(0,3))*cosdiff)
+              );
+
+          const myReal dbessargdsigh = TWO*(
+              recovinv(0,1)*redAdsigh(0,1) * sf. datam*sf. datam +
+              recovinv(0,2)*redAdsigh(0,2) * sf.fcalcp*sf.fcalcp +
+              recovinv(0,3)*redAdsigh(0,3) * sf.fcalcm*sf.fcalcm +
+              sf.fcalcp*sf.fcalcm * (
+                (recovinv(0,2)*redAdsigh(0,3) + redAdsigh(0,2)*recovinv(0,3))*cosdiff)
+              );
+
+          const myReal dbessargdsfpp = TWO*(
+              recovinv(0,1)*redAdsfpp(0,1) * sf.datam*sf.datam +
+              recovinv(0,2)*redAdsfpp(0,2) * sf.fcalcp*sf.fcalcp +
+              recovinv(0,3)*redAdsfpp(0,3) * sf.fcalcm*sf.fcalcm +
+              sf.fcalcp*sf.fcalcm * (
+                (recovinv(0,2)*redAdsfpp(0,3) + redAdsfpp(0,2)*recovinv(0,3))*cosdiff)
+              );
+
+          temp1 = TWO*sf.datam*recovinv(0,1)*recovinv(0,2);
+          temp2 = TWO*sf.datam*recovinv(0,1)*recovinv(0,3);
+
+          const myReal dcos2dfp = temp1*cospcalcp;
+          const myReal dcos2dfm = temp2*cospcalcm;
+          const myReal  cos2    = dcos2dfp*sf.fcalcp + dcos2dfm*sf.fcalcm;
+          const myReal dcos2dpp = -temp1*sinpcalcp;
+          const myReal dcos2dpm = -temp2*sinpcalcm;
+
+          const myReal dcos2dsd = TWO*sf.datam*
+            (sf.fcalcp*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*cospcalcp) +
+             sf.fcalcm*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*cospcalcm));
+
+          const myReal dcos2dsigh = TWO*sf.datam*
+            (sf.fcalcp*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*cospcalcp) +
+             sf.fcalcm*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*cospcalcm));
+
+          const myReal dcos2dsfpp = TWO*sf.datam*
+            (sf.fcalcp*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*cospcalcp) +
+             sf.fcalcm*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*cospcalcm));
+
+          const myReal dsin2dfp = temp1*sinpcalcp;
+          const myReal dsin2dfm = temp2*sinpcalcm;
+          const myReal  sin2    = dsin2dfp*sf.fcalcp + dsin2dfm*sf.fcalcm;
+          const myReal dsin2dpp = temp1*cospcalcp;
+          const myReal dsin2dpm = temp2*cospcalcm;
+
+          const myReal dsin2dsd = TWO*sf.datam*
+            (sf.fcalcp*((recovinv(0,1)*redAdsd(0,2) + redAdsd(0,1)*recovinv(0,2))*sinpcalcp) +
+             sf.fcalcm*((recovinv(0,1)*redAdsd(0,3) + redAdsd(0,1)*recovinv(0,3))*sinpcalcm));
+
+          const myReal dsin2dsigh = TWO*sf.datam*
+            (sf.fcalcp*((recovinv(0,1)*redAdsigh(0,2) + redAdsigh(0,1)*recovinv(0,2))*sinpcalcp) +
+             sf.fcalcm*((recovinv(0,1)*redAdsigh(0,3) + redAdsigh(0,1)*recovinv(0,3))*sinpcalcm));
+
+          const myReal dsin2dsfpp = TWO*sf.datam*
+            (sf.fcalcp*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*sinpcalcp) +
+             sf.fcalcm*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*sinpcalcm));
+
+          //        Tsad2.stop(tag2);
+          //       tag2 = Tsad2.start("part2::filter::03");
+
+          // For stability in the numerical integral, calculate the maximum value
+          // of the exponential.  And, since all the values are calculated, store
+          // the arguments of exponential and the bessel functions in arrays.
+
+          for (unsigned i = 0; i < nSad; i++)
+          { 
+            Sad &s = sadVec[i];
+            const myReal bess2    = cos2*s.cos + sin2*s.sin + bessarg;
+            const myReal tempbess = bess2 > 0.0 ? __sqrt(bess2) : 0.0;
+
+            const myReal besselarg = TWO*sf.datap*tempbess;
+            const myReal    exparg = cos1*s.cos + sin1*s.sin + besselarg;
+
+            s.besselarg = besselarg;
+            s.   exparg =    exparg;
+
+            maxexpval = exparg > maxexpval ? exparg : maxexpval;
+          }
+
+          for (unsigned i = 0; i < nSad; i++)
+          {
+            const Sad &s = sadVec[i];
+
+            const myReal     io = tab.I0e(s.besselarg);
+            const myReal simarg = TWO* sf.datap*sf.datap* tab.Simoverx_preI0(s.besselarg, io);
+            const myReal   prob = io * tab.ExpM(maxexpval - s.exparg);
+            const myReal  wprob = prob*s.weight;
+            integral += wprob;
+            totcos   += wprob*s.cos;
+            totsin   += wprob*s.sin;
+
+            dldfcalcp -= ((dbessargdfp   + dcos2dfp  *s.cos + dsin2dfp  *s.sin)*simarg + (dcos1dfp  *s.cos + dsin1dfp  *s.sin))*wprob;
+            dldfcalcm -= ((dbessargdfm   + dcos2dfm  *s.cos + dsin2dfm  *s.sin)*simarg + (dcos1dfm  *s.cos + dsin1dfm  *s.sin))*wprob;
+            dldpcalcp -= ((dbessargdpp   + dcos2dpp  *s.cos + dsin2dpp  *s.sin)*simarg + (dcos1dpp  *s.cos + dsin1dpp  *s.sin))*wprob; 
+            dldpcalcm -= ((dbessargdpm   + dcos2dpm  *s.cos + dsin2dpm  *s.sin)*simarg + (dcos1dpm  *s.cos + dsin1dpm  *s.sin))*wprob;
+            dldsd     -= ((dbessargdsd   + dcos2dsd  *s.cos + dsin2dsd  *s.sin)*simarg + (dcos1dsd  *s.cos + dsin1dsd  *s.sin))*wprob;
+            dldsigh   -= ((dbessargdsigh + dcos2dsigh*s.cos + dsin2dsigh*s.sin)*simarg + (dcos1dsigh*s.cos + dsin1dsigh*s.sin))*wprob;
+            dldsfpp   -= ((dbessargdsfpp + dcos2dsfpp*s.cos + dsin2dsfpp*s.sin)*simarg + (dcos1dsfpp*s.cos + dsin1dsfpp*s.sin))*wprob;
+          }
+          //        Tsad2.stop(tag2);
+
+          //        Tsad2.stop(tag1); 
+        }
+
+        if ( (integral              > DSMALL) && !filter) 
+        {
+          //        tag1 = Tsad2.start("part2::10");
+          likelihood_local -= log(det2*integral/det4) + maxexpval;
+
+          dL.Ap += (dldfcalcp*cospcalcp - dldpcalcp*sinpcalcp) / integral;
+          dL.Bp += (dldfcalcp*sinpcalcp + dldpcalcp*cospcalcp) / integral;
+          dL.Am += (dldfcalcm*cospcalcm - dldpcalcm*sinpcalcm) / integral;
+          dL.Bm += (dldfcalcm*sinpcalcm + dldpcalcm*cospcalcm) / integral;
+
+          const myReal dLdsd = 
+            dldsd / integral +  
+            TWO*( recovmodel(0,0)*(recovinv(0,2) + recovinv(1,3)) +
+                recovmodel(0,1)*(recovinv(0,3) + recovinv(1,2)) );
+          dL1[sa].sdluz += wa*dLdsd;
+
+
+          if (updatesigmah)
+          {
+            dL1[sa].sigmah += 
+              dldsigh / integral + eps*(
+                  (recovinv(0,2) +     recovinv(0,3) + recovinv(1,2) + recovinv(1,3))*TWO*sd +
+                  recovinv(2,2) + TWO*recovinv(2,3) + recovinv(3,3) -
+                  (recovinvmodel(0,0)+TWO*recovinvmodel(0,1) + recovinvmodel(1,1)));
+
+            dL1[sa].sumfpp += dldsfpp / integral - FOUR*eps*
+              ( recovinv(0,1) + recovinv(2,3) +
+                (recovinv(0,3) + recovinv(1,2))*sd - recovinvmodel(0,1));	
+          }
+
+          const myReal fom = __sqrt(totcos*totcos + totsin*totsin) / integral;
+
+          myReal phib = atan2(totsin, totcos);
+          if (crystal.centric)
+            phib  =  ((cos(phib - crystal.centricphase) >= ZERO) ?
+                crystal.centricphase : crystal.centricphase + PI);
+
+          if (crystal.centric)
+          {
+            cfom_loc [sa] += fom;
+            cnshl_loc[sa]++;
+          }
+          else
+          {
+            afom_loc [sa] += fom;
+            anshl_loc[sa]++;
+          }
+
+          //        Tsad2.stop(tag1);
+        }
+        else
+          likelihood_local += 2750.0;
+        //      Tsad2.stop(tagCounts);
+
+
+        dLdAp[d][r] = dL.Ap;
+        dLdBp[d][r] = dL.Bp;
+        dLdAm[d][r] = dL.Am;
+        dLdBm[d][r] = dL.Bm;
       }
-      Tsad2.stop(tag2);
-
-      Tsad2.stop(tag1); 
     }
 
-    if ( (integral              > DSMALL) && !filter) 
+#pragma omp critical
     {
-      tag1 = Tsad2.start("part2::10");
-      likelihood_local -= log(det2*integral/det4) + maxexpval;
-
-      dL.Ap += (dldfcalcp*cospcalcp - dldpcalcp*sinpcalcp) / integral;
-      dL.Bp += (dldfcalcp*sinpcalcp + dldpcalcp*cospcalcp) / integral;
-      dL.Am += (dldfcalcm*cospcalcm - dldpcalcm*sinpcalcm) / integral;
-      dL.Bm += (dldfcalcm*sinpcalcm + dldpcalcm*cospcalcm) / integral;
-
-      const myReal dLdsd = 
-        dldsd / integral +  
-        TWO*( recovmodel(0,0)*(recovinv(0,2) + recovinv(1,3)) +
-            recovmodel(0,1)*(recovinv(0,3) + recovinv(1,2)) );
-      dL1.sdluz += wa*dLdsd;
-
-
-      if (updatesigmah)
+      for (int sa = 0; sa < saMax; sa++)
       {
-        dL1.sigmah += 
-          dldsigh / integral + eps*(
-              (recovinv(0,2) +     recovinv(0,3) + recovinv(1,2) + recovinv(1,3))*TWO*sd +
-              recovinv(2,2) + TWO*recovinv(2,3) + recovinv(3,3) -
-              (recovinvmodel(0,0)+TWO*recovinvmodel(0,1) + recovinvmodel(1,1)));
-
-        dL1.sumfpp += dldsfpp / integral - FOUR*eps*
-          ( recovinv(0,1) + recovinv(2,3) +
-            (recovinv(0,3) + recovinv(1,2))*sd - recovinvmodel(0,1));	
+        dLdsdluz [d][sa] += dL1[sa].sdluz;
+        dLdsigmah[d][sa] += dL1[sa].sigmah;
+        dLdsumfpp[d][sa] += dL1[sa].sumfpp;
+        cfom[sa] += cfom_loc[sa];
+        afom[sa] += afom_loc[sa];
+        cnshl[d][sa] += cnshl_loc[sa];
+        anshl[d][sa] += anshl_loc[sa];
       }
 
-      const myReal fom = __sqrt(totcos*totcos + totsin*totsin) / integral;
-
-      myReal phib = atan2(totsin, totcos);
-      if (crystal.centric)
-        phib  =  ((cos(phib - crystal.centricphase) >= ZERO) ?
-            crystal.centricphase : crystal.centricphase + PI);
-
-      if (crystal.centric)
-      {
-        cfom    [sa] += fom;
-        cnshl[d][sa]++;
-      }
-      else
-      {
-        afom    [sa] += fom;
-        anshl[d][sa]++;
-      }
-
-      Tsad2.stop(tag1);
+      likelihood += likelihood_local;
     }
-    else
-      likelihood_local += 2750.0;
-    Tsad2.stop(tagCounts);
-
-
-    dLdAp[d][r] = dL.Ap;
-    dLdBp[d][r] = dL.Bp;
-    dLdAm[d][r] = dL.Am;
-    dLdBm[d][r] = dL.Bm;
-    dLdsdluz [d][sa] += dL1.sdluz;
-    dLdsigmah[d][sa] += dL1.sigmah;
-    dLdsumfpp[d][sa] += dL1.sumfpp;
-
-    likelihood += likelihood_local;
   }
   Tsad2.stop(tagId);
 
