@@ -23,10 +23,22 @@
 #include "mytimer.h"
 #include <cmath>
 extern TimerT Tsad, Tsad1, Tsad2;
+extern TimerT Tinverse;
 extern unsigned long long filter_cnt, filter_cnt_all;
+#include "FArray.h"
 
 inline float  __sqrt(const float  x) {return std::sqrt(x);}
 inline double __sqrt(const double x) {return std::sqrt(x);}
+
+extern "C" 
+{
+    void dpotrf_(char* U, int *N, double* A, int* lda, int* INFO);
+    void dpotri_(char* U, int *N, double* A, int* lda, int* INFO);
+    
+    void spotrf_(char* U, int *N, float* A, int* lda, int* INFO);
+    void spotri_(char* U, int *N, float* A, int* lda, int* INFO);
+
+}
 
 double Bp3likelihood::uncorrelatedgradient(const bool check, const bool outputmtz)
 {
@@ -887,6 +899,122 @@ typedef DLd1T<myReal> DLd1;
 typedef SadT    <myReal> Sad;
 typedef SfLightT<myReal> SfLight;
 
+#if 0
+template<int N, typename Real>
+struct Matrix
+{
+  T data[N][N];
+
+  Matrix(const Real src[N*N]) 
+  {
+    const Real *dst = &data[0][0];
+    for (int i = 0; i < N*N; i++)
+      dst[i] = src[i];
+  }
+  
+
+};
+#endif
+
+template<int N, typename REAL>
+void my_matrixprod(REAL T[N][N], const REAL A[N][N], const REAL C[N][N])
+{
+  // return reout = A*C*A for real symmetric square matrices A,C
+  for (int i = 0; i < N; i++)
+    for (int j = i; j < N; j++)
+    {
+      REAL Tij = 0.0;
+      for (int l = 0; l < N; l++)
+        for (int k = 0; k < N; k++)
+          Tij += A[l][i]*C[k][l]*A[j][k];
+      T[j][i] = T[i][j] = Tij;
+    }
+}
+
+template<int NN>
+bool my_inverse(const double in[NN][NN], double out[NN][NN], double &det)
+{
+  const int tagMain = Tinverse.start("Main");
+  
+  int errorHandler;
+  int     N = NN;
+  int lwork = NN*NN;
+  char chU[] = "U";
+
+  int tag = Tinverse.start("DPOTRF");
+  for (int j = 0; j < NN; j++)
+    for (int i = 0; i < NN; i++)
+      out[j][i] = in[j][i];
+
+  dpotrf_(chU, &N, &out[0][0], &N, &errorHandler);
+  assert(errorHandler >= 0);
+  Tinverse.stop(tag);
+
+  if (errorHandler > 0)
+    return true;
+
+  det = 1.0;
+  for (int i = 0; i < NN; i++)
+    det *= out[i][i];
+  det *= det;
+  assert(det > 0.0);
+
+
+  tag = Tinverse.start("DPOTRI");
+  dpotri_(chU, &N, &out[0][0], &N, &errorHandler);
+  assert(0 == errorHandler);
+  for (int i = 0; i < NN; i++)
+    for (int j = i; j < NN; j++)
+      out[i][j] = out[j][i];
+      
+  Tinverse.stop(tag);
+
+  Tinverse.stop(tagMain);
+  return false;
+}
+
+  template<int NN>
+bool my_inverse(const float in[NN][NN], float out[NN][NN], float &det)
+{
+  const int tagMain = Tinverse.start("Main");
+  
+  int errorHandler;
+  int     N = NN;
+  int lwork = NN*NN;
+  char chU[] = "U";
+
+  int tag = Tinverse.start("SPOTRF");
+  for (int j = 0; j < NN; j++)
+    for (int i = 0; i < NN; i++)
+      out[j][i] = in[j][i];
+
+  spotrf_(chU, &N, &out[0][0], &N, &errorHandler);
+  assert(errorHandler >= 0);
+  Tinverse.stop(tag);
+
+  if (errorHandler > 0)
+    return true;
+
+  det = 1.0;
+  for (int i = 0; i < NN; i++)
+    det *= out[i][i];
+  det *= det;
+  assert(det > 0.0);
+
+
+  tag = Tinverse.start("SPOTRI");
+  spotri_(chU, &N, &out[0][0], &N, &errorHandler);
+  assert(0 == errorHandler);
+  for (int i = 0; i < NN; i++)
+    for (int j = i; j < NN; j++)
+      out[i][j] = out[j][i];
+      
+  Tinverse.stop(tag);
+
+  Tinverse.stop(tagMain);
+  return false;
+}
+
 
 double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
 {
@@ -993,22 +1121,23 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     const int     sa =         crystal.sa;
 #endif
 
+    /* eg01: tuned beg */
+
     // epsilon correct model covariance
-    const double tmodel[] = 
+    const myReal tmodel[2][2] = 
     {
-      covmodel[sa](0,0)*eps, covmodel[sa](0,1)*eps,
-      covmodel[sa](1,0)*eps, covmodel[sa](1,1)*eps
+      {covmodel[sa](0,0)*eps, covmodel[sa](0,1)*eps},
+      {covmodel[sa](1,0)*eps, covmodel[sa](1,1)*eps},
     };
 
-    recovmodel.assign(tmodel);
+    const FArray2D<myReal,2,2> recovmodel(&tmodel[0][0]);
 
-    const double tinvmodel[] =
+    const myReal tinvmodel[2][2]=
     {
-      covinvmodel[sa](0,0)/eps, covinvmodel[sa](0,1)/eps,
-      covinvmodel[sa](1,0)/eps, covinvmodel[sa](1,1)/eps
+      {covinvmodel[sa](0,0)/eps, covinvmodel[sa](0,1)/eps},
+      {covinvmodel[sa](1,0)/eps, covinvmodel[sa](1,1)/eps},
     };
-
-    recovinvmodel.assign(tinvmodel);
+    const FArray2D<myReal,2,2> recovinvmodel(&tinvmodel[0][0]);
 
     const myReal det2 = detmodel[sa]*eps*eps;
 
@@ -1025,26 +1154,35 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     tag1 = Tsad2.start("part2::03");
     // total covariance matrices
 
-    const double cov[] = 
+    const myReal cov[4][4] = 
     {
-      eps*sigman+sf.devp*sf.devp,
-      eps*(sigman-sfpp), sd*recovmodel(0,0),
-      sd*recovmodel(0,1),
-      eps*(sigman-sfpp),
-      eps*sigman+sf.devm*sf.devm,
-      sd*recovmodel(0,1), sd*recovmodel(0,0),
-      sd*recovmodel(0,0), sd*recovmodel(0,1),
-      recovmodel(0,0),    recovmodel(0,1),
-      sd*recovmodel(0,1), sd*recovmodel(0,0),
-      recovmodel(0,1),    recovmodel(0,0)
+      {eps*sigman+sf.devp*sf.devp, eps*(sigman-sfpp), sd*recovmodel(0,0), sd*recovmodel(0,1)},
+      {eps*(sigman-sfpp), eps*sigman+sf.devm*sf.devm, sd*recovmodel(0,1), sd*recovmodel(0,0)},
+      {sd*recovmodel(0,0), sd*recovmodel(0,1), recovmodel(0,0),    recovmodel(0,1)},
+      {sd*recovmodel(0,1), sd*recovmodel(0,0), recovmodel(0,1),    recovmodel(0,0)}
     };      
+    const FArray2D<myReal,4,4> recov(&cov[0][0]);
 
-    recov.assign(cov);
+    myReal covinv[4][4];
+    FArray2D<myReal,4,4> recovinv(&covinv[0][0]);
 
-    double det4(ONE);
+    myReal det4(ONE);
 
     int tagMatrix = Tsad2.start("Inverse");
-    const bool filter = inverse(recov,recovinv,det4);
+    bool filter = my_inverse<4>(cov, covinv,det4);
+    if (filter)
+    {
+      Matrix ori(4), inv(4);
+      for (int j = 0; j < 4; j++)
+        for (int i = 0; i < 4; i++)
+          ori(i,j) = recov(i,j);
+      double det4a = 1;
+      filter = inverse_gold(ori, inv, det4a);
+      det4 = det4a;
+      for (int j = 0; j < 4; j++)
+        for (int i = 0; i < 4; i++)
+          recovinv(i,j) = inv(i,j);
+    }
     Tsad2.stop(tagMatrix);
 
 
@@ -1054,43 +1192,54 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     // derivatives of the matrices
     // wrt sdluz
 
-    const double rtmp1[] = 
+    const myReal rtmp1[4][4] = 
     {
-      ZERO, ZERO, -recovmodel(0,0), -recovmodel(0,1),
-      ZERO, ZERO, -recovmodel(0,1), -recovmodel(0,0),
-      -recovmodel(0,0), -recovmodel(0,1), ZERO, ZERO,
-      -recovmodel(0,1), -recovmodel(0,0), ZERO, ZERO
+      {ZERO, ZERO, -recovmodel(0,0), -recovmodel(0,1)},
+      {ZERO, ZERO, -recovmodel(0,1), -recovmodel(0,0)},
+      {-recovmodel(0,0), -recovmodel(0,1), ZERO, ZERO},
+      {-recovmodel(0,1), -recovmodel(0,0), ZERO, ZERO}
     };
 
-    matrixprod(redAdsd,recovinv,rtmp1);
 
-    const double rtmp2[] = 
+    myReal redAdsdA  [4][4];
+    myReal redAdsighA[4][4];
+    myReal redAdsfppA[4][4];
+    FArray2D<myReal,4,4> redAdsd  (&redAdsdA  [0][0]);
+    FArray2D<myReal,4,4> redAdsigh(&redAdsighA[0][0]);
+    FArray2D<myReal,4,4> redAdsfpp(&redAdsfppA[0][0]);
+
+
+    my_matrixprod(redAdsdA, covinv, rtmp1);
+
+    const myReal rtmp2[4][4] = 
     {
-      ZERO, ZERO, -eps*sd, -eps*sd,
-      ZERO, ZERO, -eps*sd, -eps*sd,
-      -eps*sd, -eps*sd, -eps, -eps,
-      -eps*sd, -eps*sd, -eps, -eps
+      {ZERO, ZERO, -eps*sd, -eps*sd},
+      {ZERO, ZERO, -eps*sd, -eps*sd},
+      {-eps*sd, -eps*sd, -eps, -eps},
+      {-eps*sd, -eps*sd, -eps, -eps}
     };
 
-    matrixprod(redAdsigh,recovinv,rtmp2);
+    my_matrixprod(redAdsighA, covinv,rtmp2);
 
     // wrt sumfpp
 
-    const double rtmp3[] = 
+    const myReal rtmp3[4][4] = 
     {
-      ZERO, TWO*eps, ZERO, TWO*eps*sd,
-      TWO*eps, ZERO, TWO*eps*sd, ZERO,
-      ZERO, TWO*eps*sd, ZERO, TWO*eps,
-      TWO*eps*sd, ZERO, TWO*eps, ZERO
+      {ZERO, TWO*eps, ZERO, TWO*eps*sd},
+      {TWO*eps, ZERO, TWO*eps*sd, ZERO},
+      {ZERO, TWO*eps*sd, ZERO, TWO*eps},
+      {TWO*eps*sd, ZERO, TWO*eps, ZERO}
     };
 
-    matrixprod(redAdsfpp,recovinv,rtmp3);
+    my_matrixprod(redAdsfppA, covinv,rtmp3);
+
+    Tsad2.stop(tag1);
+    /* eg01: tuned end */
+
+    tag1 = Tsad2.start("part2::05");
 
     const myReal cosdiff = tab.Cos        (sf.pcalcp - sf.pcalcm);
     const myReal sindiff = tab.Sin_charged(sf.pcalcp - sf.pcalcm);  
-
-    Tsad2.stop(tag1);
-    tag1 = Tsad2.start("part2::05");
 
     myReal likelihood_local = 
       recovinv(0,0)*sf.datap*sf.datap+
@@ -1167,6 +1316,8 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
     {
       filter_cnt++;
       tag1 = Tsad2.start("part2::filter");
+
+      int tag2 = Tsad2.start("part2::filter::01");
       // precalculate arguments in summation/integration      
       const myReal dcos1dfp = -TWO    *sf. datam*cospcalcp*recovinv(1,2);
       const myReal dcos1dfm = -TWO    *sf. datam*cospcalcm*recovinv(1,3);
@@ -1211,6 +1362,9 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
         recovinv(0,2)*recovinv(0,2) * sf.fcalcp*sf.fcalcp +
         recovinv(0,3)*recovinv(0,3) * sf.fcalcm*sf.fcalcm +
         TWO                         * sf.fcalcp*sf.fcalcm * temp;
+
+      Tsad2.stop(tag2);
+      tag2 = Tsad2.start("part2::filter::02");
 
       const myReal dbessargdfp =  TWO*(sf.fcalcp*recovinv(0,2)*recovinv(0,2) + sf.fcalcm*temp);
       const myReal dbessargdfm =  TWO*(sf.fcalcm*recovinv(0,3)*recovinv(0,3) + sf.fcalcp*temp);
@@ -1280,6 +1434,8 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
         (sf.fcalcp*((recovinv(0,1)*redAdsfpp(0,2) + redAdsfpp(0,1)*recovinv(0,2))*sinpcalcp) +
          sf.fcalcm*((recovinv(0,1)*redAdsfpp(0,3) + redAdsfpp(0,1)*recovinv(0,3))*sinpcalcm));
 
+      Tsad2.stop(tag2);
+      tag2 = Tsad2.start("part2::filter::03");
 
       // For stability in the numerical integral, calculate the maximum value
       // of the exponential.  And, since all the values are calculated, store
@@ -1320,6 +1476,7 @@ double Bp3likelihood::sadgradient(const bool checkX, const bool outputmtzX)
         dldsigh   -= ((dbessargdsigh + dcos2dsigh*s.cos + dsin2dsigh*s.sin)*simarg + (dcos1dsigh*s.cos + dsin1dsigh*s.sin))*wprob;
         dldsfpp   -= ((dbessargdsfpp + dcos2dsfpp*s.cos + dsin2dsfpp*s.sin)*simarg + (dcos1dsfpp*s.cos + dsin1dsfpp*s.sin))*wprob;
       }
+      Tsad2.stop(tag2);
 
       Tsad2.stop(tag1); 
     }

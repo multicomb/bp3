@@ -13,13 +13,13 @@ ifeq ($(OMPGLIBC), 1)
 	OMPFLAGS += -D_GLIBCXX_PARALLEL
 endif
 
-OFLAGS = -O3 -g 
+OFLAGS = -O4 -g 
 ifeq ($(GDB), 1)
 	OFLAGS = -O0 -g
 endif
 	
-OFLAGS  += -funroll-all-loops
-CXXFLAGS = $(OFLAGS)
+OFLAGS  += -funroll-loops
+CXXFLAGS = $(OFLAGS) $(OMPFLAGS)
 #-Wstrict-aliasing=2 $(OMPFLAGS)
 
 ifeq ($(SSE), 1)
