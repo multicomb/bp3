@@ -859,17 +859,19 @@ struct CrystalLight
 {
   typedef std::vector<CrystalLight> Vector;
   float eps, centricphase;
-  int sa, centric;
+  int _sa, centric;
   int usem, usep, iPad[2];
-  CrystalLight(const int _sa, const int _use, const int _centric, const double _eps, const double _centricphase,
+  CrystalLight(const int __sa, const int _use, const int _centric, const double _eps, const double _centricphase,
       const int _usem, const int _usep) :
-    eps(_eps), centricphase(_centricphase), sa(_sa), centric(_centric),
+    eps(_eps), centricphase(_centricphase), _sa(__sa), centric(_centric),
     usem(_usem), usep(_usep)
   {
+    assert(_sa >= 0);
     assert(sizeof(CrystalLight) == 8*sizeof(float));
-    if (!_use) sa = -1-sa;
+    if (!_use) _sa = -1-_sa;
   }
-  bool use() const {return sa >= 0;}
+  bool use() const {return _sa >= 0;}
+  int  sa() const {return _sa < 0 ? -1-_sa : _sa;}
 };
 
 template<typename T>
@@ -1007,9 +1009,17 @@ bool my_inverse_gold(const double in[N][N], double out[N][N], double &det)
 
 double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
 {
+#if 1
+  return sadgradient_gold(check, outputmtz);
+#endif
   if (outputmtz)
   {
+#if 0 
     return sadgradient_gold(check, outputmtz);
+#else
+    if (check) return sadgradient_tuned<true, true >();
+    else       return sadgradient_tuned<true, false>();
+#endif
   }
   else
   {
@@ -1129,14 +1139,14 @@ double Bp3likelihood::sadgradient_tuned()
   }
 
   Tsad2.stop(tagP);
-  
+
 #pragma omp parallel reduction(+:flagged,nstop,stopfom,meansdluz,sdsdluz)
   {
     TabFunc<myReal> tab;
     std::vector<DLd1> dL1(nBins, 0.0);
     myReal likelihood_local = 0;
     Sad::Vector sadVec(sadVecS);
-    
+
     vector<float> fdata(nCCP4);
     std::vector<myReal> cfom_loc(nBins, 0.0), afom_loc(nBins, 0.0);
     std::vector<unsigned int> cnshl_loc(nBins, 0), anshl_loc(nBins, 0);
@@ -1153,6 +1163,7 @@ double Bp3likelihood::sadgradient_tuned()
           fdata[i] = fCCP4;
 
 #if 0
+#pragma omp critical
       if (OUTPUTMTZ)
         storeinitialcolumns(MTZIN, fdata, inc, r);
 #endif
@@ -1162,7 +1173,7 @@ double Bp3likelihood::sadgradient_tuned()
       const      SfLight      &sf =      sfVec[r];
 
       const myReal eps = (myReal)crystal.eps;
-      const int     sa =         crystal.sa;
+      const int     sa =         crystal.sa();
 
       const myReal     sd = xtal.sf[d]. sdluz[sa];
       const myReal sigmah = xtal.sf[d].sigmah[sa];
@@ -1332,11 +1343,8 @@ double Bp3likelihood::sadgradient_tuned()
         myReal maxexpval(ZERO);
         myReal totlogcos(ZERO), totlogsin(ZERO), totlogcos2(ZERO), totlogsin2(ZERO);
 
-        filter_cnt_all++;
         if (!filter)
         {
-          filter_cnt++;
-
           // precalculate arguments in summation/integration      
           const myReal dcos1dfp = -TWO    *sf. datam*cospcalcp*recovinv(1,2);
           const myReal dcos1dfm = -TWO    *sf. datam*cospcalcm*recovinv(1,3);
@@ -1630,7 +1638,8 @@ double Bp3likelihood::sadgradient_tuned()
         fdata[inc + 12]              = (float) sf.pcalcp/DEGREEtoRAD;
         fdata[inc + 13]              = (float) sf.fcalcp/__sqrt(eps*sig);
       }
-#if 1
+#if 0
+#pragma omp critical
       if (OUTPUTMTZ)
         CMtz::ccp4_lwrefl(MTZOUT, &fdata[0], &colout[0], fdata.size(), r+1);
 #endif
@@ -1696,9 +1705,8 @@ double Bp3likelihood::sadgradient_tuned()
   return likelihood;
 }
 
-double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
+double Bp3likelihood::sadgradient_gold(const bool check, const bool outputmtz)
 {
-  assert(CHECK || OUTPUTMTZ);
   const int tagMain = Tsad.start("Main");
   // Calculates likelihood for a sad data set (d=0) assuming correlated errors.
   likelihood                      = ZERO;
@@ -1707,12 +1715,12 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
   double fomreso((double)xtal.sf[d].hires);
   double stopfom(ZERO), meansdluz(ZERO), sdsdluz(ZERO);
 
-  if (CHECK)
-    xtal.Setselected( (OUTPUTMTZ ? "PHASE" : "REFINE" ) );
+  if (check)
+    xtal.Setselected( (outputmtz ? "PHASE" : "REFINE" ) );
 
   CMtz::MTZ *MTZOUT(NULL),  *MTZIN(NULL);
 
-  if (OUTPUTMTZ)
+  if (outputmtz)
   {
     if (allin)
     {
@@ -1778,22 +1786,19 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
 
   for (unsigned r                 = 0; r < xtal.maxselref; r++)
   {
-    int tag1 = Tsad.start("part2::01");
     // Default value for columns to be written out is MNF
 
-    if (OUTPUTMTZ)
+    if (outputmtz)
       for (int i = 0; i < nCCP4; i++)
         fdata[i] = fCCP4;
 
 #if 0
-    if (OUTPUTMTZ)
+    if (outputmtz)
       storeinitialcolumns(MTZIN, fdata, inc, r);
 #endif
 
     dLdAp[d][r]                   = dLdBp[d][r] = dLdAm[d][r] =  dLdBm[d][r] = ZERO;
-    Tsad.stop(tag1);
 
-    tag1 = Tsad.start("part2::02");
     double eps((double) xtal.epsilon[r]);
     unsigned sa(xtal.bin(d,r));
 
@@ -1827,15 +1832,12 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
     if (xtal.sf[d].use(r))
     {
       counts++;
-      if (xtal.sf[d].anouse(r) && (OUTPUTMTZ || !xtal.centric[r]))
+      if (xtal.sf[d].anouse(r) && (outputmtz || !xtal.centric[r]))
         counts++;
     }
-    Tsad.stop(tag1);
 
     if (counts                    > 1)
     {
-      const int tagCounts = Tsad.start("counts");
-      tag1 = Tsad.start("part2::03");
       // total covariance matrices
 
       const double cov[ ]         = {eps*sigman+xtal.sf[d].devp[r]*xtal.sf[d].devp[r],
@@ -1856,8 +1858,6 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
       bool filter                 = inverse(recov,recovinv,det4);
 
 
-      Tsad.stop(tag1);
-      tag1 = Tsad.start("part2::04");
       //if (fabs(recov(2,2))        > DSMALL)
       //	sd                        = xtal.sf[d].sdluz[sa] = recov(0,2)/recov(2,2);
 
@@ -1891,8 +1891,6 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
 
       double sindiff              = tab.Sin_charged(xtal.sf[d].pcalcp[r] - xtal.sf[d].pcalcm[r]);  
 
-      Tsad.stop(tag1);
-      tag1 = Tsad.start("part2::05");
 
       likelihood                 += (recovinv(0,0)*xtal.sf[d].datap[r]*
           xtal.sf[d].datap[r]+
@@ -1950,11 +1948,9 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
       double temp1                = -eps*temp*temp;
       double temp2;
 
-      Tsad.stop(tag1); 
 
       if (updatesigmah)
       {
-        tag1 = Tsad.start("part2::updatesigmah");
         dLdsigmah[d][sa]         += (redAdsigh(0,0)*xtal.sf[d].datap[r]*
             xtal.sf[d].datap[r]+
             redAdsigh(1,1)*xtal.sf[d].datam[r]*
@@ -1980,7 +1976,6 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
             xtal.sf[d].fcalcm[r]*xtal.sf[d].fcalcm[r]+
             TWO*xtal.sf[d].fcalcp[r]*xtal.sf[d].fcalcm[r]*
             (redAdsfpp(2,3) - temp1)*cosdiff);
-        Tsad.stop(tag1); 
       }
 
       double integral(ZERO), totcos(ZERO), totsin(ZERO); 
@@ -1991,7 +1986,6 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
 
       if (!filter)
       {
-        tag1 = Tsad.start("part2::filter");
         // precalculate arguments in summation/integration      
         double dcos1dfp           = -TWO*xtal.sf[d].datam[r]*cospcalcp*recovinv(1,2);
         double dcos1dfm           = -TWO*xtal.sf[d].datam[r]*cospcalcm*recovinv(1,3);
@@ -2217,7 +2211,7 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
           dldsfpp                -= ((dbessargdsfpp + dcos2dsfpp*sadcos[i] +
                 dsin2dsfpp*sadsin[i])*simarg +
               (dcos1dsfpp*sadcos[i] + dsin1dsfpp*sadsin[i]))*wprob;
-          if (prob                > SMALLESTD && OUTPUTMTZ)
+          if (prob                > SMALLESTD && outputmtz)
           {
             prob                  = log(prob)*sadweight[i];
             totlogcos            += prob*sadcos[i];
@@ -2226,12 +2220,10 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
             totlogsin2           += prob*TWO*sadcos[i]*sadsin[i];
           }
         }
-        Tsad.stop(tag1); 
       }
 
       if ( (integral              > DSMALL) && !filter) 
       {
-        tag1 = Tsad.start("part2::10");
         likelihood               -= (log(det2*integral/det4) + maxexpval);
 
         dLdAp[d][r]              += (dldfcalcp*cospcalcp - 
@@ -2272,7 +2264,7 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
 
         double fom                 = sqrt(totcos*totcos + totsin*totsin)/integral;
 
-        if (OUTPUTMTZ)
+        if (outputmtz)
           if (xtal.Getres(d,r)     >= fomreso)
           {
             stopfom                += fom;
@@ -2299,7 +2291,7 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
           anshl[d][s]++;
         }
 
-        if (OUTPUTMTZ)
+        if (outputmtz)
         {
           fdata[inc + 2]          = (float) (fom*xtal.sf[d].datap[r]);
           fdata[inc + 3]          = (float) (phib/DEGREEtoRAD);
@@ -2314,11 +2306,9 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
           fdata[inc + 9]          = (float) sqrt(adiff*adiff + bdiff*bdiff);
           fdata[inc + 10]         = (float) (atan2(bdiff,adiff)/DEGREEtoRAD);
         }
-        Tsad.stop(tag1);
       }
       else
       {
-        tag1 = Tsad.start("part2::11");
         // double tmp(std::max(fabs(det4-0.001), ONE));
         // likelihood                += 1000.0*(log(tmp) + 1.75);
         likelihood                += 2750.0;
@@ -2335,14 +2325,11 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
            }
            */	
         flagged++;
-        Tsad.stop(tag1);
       }
-      Tsad.stop(tagCounts);
     }
 
-    else if (OUTPUTMTZ && (xtal.sf[d].usem(r) || xtal.sf[d].usep(r)) )
+    else if (outputmtz && (xtal.sf[d].usem(r) || xtal.sf[d].usep(r)) )
     {
-      tag1 = Tsad.start("part2::20");
       double fobs, arg(ZERO);
       double var                  = std::max(eps*(sigman - sd*sd*sigmah), EPSILON);
 
@@ -2377,11 +2364,10 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
       fdata[inc + 8]              = (float) ZERO;
       fdata[inc + 9]              = (float) ZERO;
       fdata[inc + 10]             = (float) ZERO;
-      Tsad.stop(tag1);
     }
 
 #if 0
-    if (OUTPUTMTZ)
+    if (outputmtz)
     {      
       if (outputhcalc)
       {
@@ -2397,7 +2383,7 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
       CMtz::ccp4_lwrefl(MTZOUT, &fdata[0], &colout[0], fdata.size(), r+1);
     }
 #else
-    if (OUTPUTMTZ && outputhcalc)
+    if (outputmtz && outputhcalc)
     {
       unsigned sa(xtal.bin(d,r)), sb(sa);
       double wa(ONE), wb(ZERO);
@@ -2408,13 +2394,13 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
       fdata[inc + 12]              = (float) xtal.sf[d].pcalcp[r]/DEGREEtoRAD;
       fdata[inc + 13]              = (float) xtal.sf[d].fcalcp[r]/sqrt(eps*sig);
     }
-    if (OUTPUTMTZ)
+    if (outputmtz)
       CMtz::ccp4_lwrefl(MTZOUT, &fdata[0], &colout[0], fdata.size(), r+1);
 #endif
   }
   Tsad.stop(tagId);
 
-  if (OUTPUTMTZ)
+  if (outputmtz)
   {
     if (nstop)
     {
@@ -2447,7 +2433,7 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
   if (xtal.verbose                > 1)
     printf("LIKELIHOOD = %f\n",likelihood);
 
-  if (flagged && CHECK)
+  if (flagged && check)
     printf("Number of reflections with low likelihood values: %u\n", flagged);
 
   Tsad.stop(tagMain);

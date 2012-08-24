@@ -128,6 +128,8 @@ class Bp3likelihood : public Likelihood
     double sadgradient(const bool check = false, const bool mtz = false);
     template<bool OUTPUTMTZ, bool CHECK>
     double sadgradient_tuned();
+    template<bool OUTPUTMTZ, bool CHECK>
+    double sadgradient_serial();
     double sadgradient_gold(const bool, const bool);
     double madfunction(const bool check);
     double madgradient(const bool check = false, const bool mtz = false);

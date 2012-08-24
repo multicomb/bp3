@@ -13,7 +13,7 @@ ifeq ($(OMPGLIBC), 1)
 	OMPFLAGS += -D_GLIBCXX_PARALLEL
 endif
 
-OFLAGS = -O4 -g 
+OFLAGS = -O3 -g 
 ifeq ($(GDB), 1)
 	OFLAGS = -O0 -g
 endif
