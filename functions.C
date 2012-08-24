@@ -1014,7 +1014,7 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
  
   assert(!outputmtz);
 
-  int flagged = 0;  
+  int flagged = 0, nstop = 0;
   if (check)
     xtal.Setselected( (outputmtz ? "PHASE" : "REFINE" ) );
   
@@ -1040,6 +1040,11 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
 
     setupmtz(MTZOUT,MTZIN);
   }
+  const int inc   = (allin) ? colin.size() : 3;
+  const int nCCP4 = outputhcalc ? 14+inc : 11+inc;
+  const int fCCP4 = CCP4::ccp4_nan().f;
+            
+  const myReal fpp(mdl.form[mdl.atom[0].nform].fpp[0]);
 
   const int tagMain = Tsad2.start("Main");
   // Calculates likelihood for a sad data set (d=0) assuming correlated errors.
@@ -1112,32 +1117,50 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
   }
 
   Tsad2.stop(tagP);
-
-#pragma omp parallel reduction(+:flagged)
+  
+#pragma omp parallel reduction(+:flagged,nstop)
   {
     TabFunc<myReal> tab;
     std::vector<DLd1> dL1(nBins, 0.0);
     myReal likelihood_local = 0;
     Sad::Vector sadVec(sadVecS);
     
+    vector<float> fdata(nCCP4);
     std::vector<myReal> cfom_loc(nBins, 0.0), afom_loc(nBins, 0.0);
     std::vector<unsigned int> cnshl_loc(nBins, 0), anshl_loc(nBins, 0);
 
 #pragma omp for schedule(dynamic) nowait
     for (unsigned r = 0; r < xtal.maxselref; r++)
     {
-      //      int tag1 = Tsad2.start("part2::01");
       // Default value for columns to be written out is MNF
 
       DLd  dL (0.0);
 
+#if 0
+      if (outputmtz)
+        for (int i = 0; i < nCCP4; i++)
+          fdata[i] = fCCP4;
+#endif
+
+#if 0
+      if (outputmtz)
+        storeinitialcolumns(MTZIN, fdata, inc, r);
+#endif
+
+
       const CrystalLight &crystal = crystalVec[r];
       const      SfLight      &sf =      sfVec[r];
 
+      const myReal eps = (myReal)crystal.eps;
+      const int     sa =         crystal.sa;
+
+      const myReal     sd = xtal.sf[d]. sdluz[sa];
+      const myReal sigmah = xtal.sf[d].sigmah[sa];
+      const myReal sigman = xtal.sf[d].sigman[sa];
+      const myReal sfpp   = sumfpp[d][d][sa];
+
       if (crystal.use() && (outputmtz || !crystal.centric))
       {
-        const myReal eps = (myReal)crystal.eps;
-        const int     sa =         crystal.sa;
 
         /* eg01: tuned beg */
 
@@ -1159,10 +1182,6 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
 
         const myReal det2 = detmodel[sa]*eps*eps;
 
-        myReal           sd = xtal.sf[d]. sdluz[sa];
-        const myReal sigmah = xtal.sf[d].sigmah[sa];
-        const myReal sigman = xtal.sf[d].sigman[sa];
-        const myReal sfpp   = sumfpp[d][d][sa];
 
         const myReal wa(ONE);
 
@@ -1301,6 +1320,7 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
         myReal dldfcalcp(ZERO), dldfcalcm(ZERO), dldpcalcp(ZERO), dldpcalcm(ZERO);
         myReal dldsd(ZERO), dldsigh(ZERO), dldsfpp(ZERO);
         myReal maxexpval(ZERO);
+        myReal totlogcos(ZERO), totlogsin(ZERO), totlogcos2(ZERO), totlogsin2(ZERO);
 
         filter_cnt_all++;
         if (!filter)
@@ -1458,8 +1478,17 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
             dldsd     -= ((dbessargdsd   + dcos2dsd  *s.cos + dsin2dsd  *s.sin)*simarg + (dcos1dsd  *s.cos + dsin1dsd  *s.sin))*wprob;
             dldsigh   -= ((dbessargdsigh + dcos2dsigh*s.cos + dsin2dsigh*s.sin)*simarg + (dcos1dsigh*s.cos + dsin1dsigh*s.sin))*wprob;
             dldsfpp   -= ((dbessargdsfpp + dcos2dsfpp*s.cos + dsin2dsfpp*s.sin)*simarg + (dcos1dsfpp*s.cos + dsin1dsfpp*s.sin))*wprob;
+#if 0
+            if (prob > SMALLESTD && outputmtz)
+            {
+              const myReal prob1 = log(prob)*s.weight;
+              totlogcos  += prob1*s.cos;
+              totlogsin  += prob1*s.sin;
+              totlogcos2 += prob1*(s.cos*s.cos - s.sin*s.sin);
+              totlogsin2 += prob1*TWO*s.cos*s.sin;
+            }
+#endif
           }
-
         }
 
         if ( (integral              > DSMALL) && !filter) 
@@ -1493,6 +1522,17 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
 
           const myReal fom = __sqrt(totcos*totcos + totsin*totsin) / integral;
 
+#if 0
+          if (xtal.Getres(d,r) >= fomreso)
+          {
+            stopfom                += fom;
+            meansdluz              += sd;
+            sdsdluz                += sd*sd;
+            nstop++;
+          }
+#endif
+          /* endif */
+
           myReal phib = atan2(totsin, totcos);
           if (crystal.centric)
             phib  =  ((cos(phib - crystal.centricphase) >= ZERO) ?
@@ -1509,6 +1549,22 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
             anshl_loc[sa]++;
           }
 
+#if 0
+          if (outputmtz)
+          {
+            fdata[inc + 2]          = (float) (fom*sf.datap);
+            fdata[inc + 3]          = (float) (phib/DEGREEtoRAD);
+            fdata[inc + 4]          = (float) fom;
+            fdata[inc + 5]          = (float) totlogcos;
+            fdata[inc + 6]          = (float) totlogsin;
+            fdata[inc + 7]          = (float) totlogcos2;
+            fdata[inc + 8]          = (float) totlogsin2;
+            const myReal adiff            =  fpp*(-dL.Bp + dL.Bm);
+            const myReal bdiff            =  fpp*( dL.Ap - dL.Am);
+            fdata[inc + 9]          = (float) __sqrt(adiff*adiff + bdiff*bdiff);
+            fdata[inc + 10]         = (float) (atan2(bdiff,adiff)/DEGREEtoRAD);
+          }
+#endif
         }
         else
         {
@@ -1522,35 +1578,61 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
         dLdAm[d][r] = dL.Am;
         dLdBm[d][r] = dL.Bm;
       }
+#if 0
       else if (outputmtz && (crystal.usem || crystal.usep))
       {
-        assert(0);
-#if 0
         double fobs, arg(ZERO);
         double var                  = std::max(eps*(sigman - sd*sd*sigmah), EPSILON);
 
-        if (xtal.sf[d].usep(r))
+        if (crystal.usep)
         {
-          fobs                      = xtal.sf[d].datap[r];
-          var                      += xtal.sf[d].devp[r]*xtal.sf[d].devp[r];
-          arg                       = TWO*fobs*sd*xtal.sf[d].fcalcp[r]/var;
+          fobs                      = sf.datap;
+          var                      += sf.devp*sf.devp;
+          arg                       = TWO*fobs*sd*sf.fcalcp/var;
         }
         else
         {
-          fobs                      = xtal.sf[d].datam[r];
-          var                      += xtal.sf[d].devm[r]*xtal.sf[d].devm[r];
-          arg                       = TWO*fobs*sd*xtal.sf[d].fcalcm[r]/var;
+          fobs                      = sf.datam;
+          var                      += sf.devm*sf.devm;
+          arg                       = TWO*fobs*sd*sf.fcalcm/var;
         }
 
-        double phib                 = xtal.sf[d].pcalcp[r];
+        const double phib                 = sf.pcalcp;
+        const double fom                  = tab.Sim(arg);
 
-        double fom                  = tab.Sim(arg);
+        afom_loc [sa]                    += fom;
+        anshl_loc[sa]++;
 
-        unsigned s                  = xtal.bin(d,r);
-        afom_loc[s]                    += fom;
-        anshl_loc[d][s]++;
-#endif
+        fdata[inc + 2]              = (float) fom*fobs;
+        fdata[inc + 3]              = (float) (phib/DEGREEtoRAD);
+        fdata[inc + 4]              = (float) fom;
+        double temp                 = atanh(fom);
+        fdata[inc + 5]              = (float) temp*tab.Cos(phib);
+        fdata[inc + 6]              = (float) temp*tab.Sin_charged(phib);
+        fdata[inc + 7]              = (float) ZERO;
+        fdata[inc + 8]              = (float) ZERO;
+        fdata[inc + 9]              = (float) ZERO;
+        fdata[inc + 10]             = (float) ZERO;
       }
+#endif
+
+#if 0
+      if (outputmtz && outputhcalc)
+      {
+        unsigned sa(xtal.bin(d,r)), sb(sa);
+        double wa(ONE), wb(ZERO);
+        const double sig               = wa*xtal.sf[d].sigmah[sa] + wb*xtal.sf[d].sigmah[sb];
+        xtal.binweights(d, r, sa, sb, wa, wb);
+
+        fdata[inc + 11]              = (float) sf.fcalcp;
+        fdata[inc + 12]              = (float) sf.pcalcp/DEGREEtoRAD;
+        fdata[inc + 13]              = (float) sf.fcalcp/__sqrt(eps*sig);
+      }
+#endif
+#if 0
+      if (outputmtz)
+        CMtz::ccp4_lwrefl(MTZOUT, &fdata[0], &colout[0], fdata.size(), r+1);
+#endif
     }
 
 #pragma omp critical
@@ -1568,8 +1650,42 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
 
       likelihood += likelihood_local;
     }
+
   }
   Tsad2.stop(tagId);
+
+  if (outputmtz)
+  {
+    assert(0);
+#if 0
+    if (nstop)
+    {
+      double dnstop((double)nstop);
+      char result[125];
+      sprintf(result,"The overall FOM is %.3f and the average anomalous Luzzati error is %.3f to %.2f resolution",
+          stopfom/dnstop,meansdluz/dnstop,fomreso);
+      Bp3Result(result);
+      printf("The standard deviation of the anomalous Luzzati error is %.3f to %.2f resolution\n\n",
+          sqrt(fabs(dnstop*sdsdluz - meansdluz*meansdluz)/(dnstop*(dnstop-1))), fomreso);
+      FILE *pluz(NULL);
+      pluz = fopen("pluzz1","w");
+      fprintf(pluz," PLUZzati 2" );
+      for (unsigned s = 0; s < xtal.sf[d].nbins; s++)
+        fprintf(pluz, "%9.6f ",xtal.sf[d].sdluz[s]);
+      fprintf(pluz, "NOREF \n");
+      //      fprintf(pluz, " \n");
+      fclose(pluz);
+
+    }
+#endif
+
+    CMtz::MtzPut(MTZOUT, " ");
+    if (MTZOUT)
+      CMtz::MtzFree(MTZOUT);
+    if (MTZIN)
+      CMtz::MtzFree(MTZIN);
+
+  }  
 
 
   if (xtal.verbose > 1)
