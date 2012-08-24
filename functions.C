@@ -1023,12 +1023,12 @@ double Bp3likelihood::sadgradient_tuned()
 {
   assert(!interpolate);
   assert(cd == 0);
-  if (OUTPUTMTZ)
-    return sadgradient_gold(CHECK, OUTPUTMTZ);
- 
-  assert(!OUTPUTMTZ);
+
+  const int d = 0; /* d = cd = 0 */
 
   int flagged = 0, nstop = 0;
+  const myReal fomreso((double)xtal.sf[d].hires);
+  myReal stopfom(ZERO), meansdluz(ZERO), sdsdluz(ZERO);
   if (CHECK)
     xtal.Setselected( (OUTPUTMTZ ? "PHASE" : "REFINE" ) );
   
@@ -1058,13 +1058,11 @@ double Bp3likelihood::sadgradient_tuned()
   const int nCCP4 = outputhcalc ? 14+inc : 11+inc;
   const int fCCP4 = CCP4::ccp4_nan().f;
             
-  const myReal fpp(mdl.form[mdl.atom[0].nform].fpp[0]);
 
   const int tagMain = Tsad2.start("Main");
   // Calculates likelihood for a sad data set (d=0) assuming correlated errors.
   likelihood                      = ZERO;
 
-  const int d = 0;
   vector<double> detmodel(xtal.sf[d].nbins, ONE);
 
   const int nBins = xtal.sf[d].nbins;
@@ -1132,7 +1130,7 @@ double Bp3likelihood::sadgradient_tuned()
 
   Tsad2.stop(tagP);
   
-#pragma omp parallel reduction(+:flagged,nstop)
+#pragma omp parallel reduction(+:flagged,nstop,stopfom,meansdluz,sdsdluz)
   {
     TabFunc<myReal> tab;
     std::vector<DLd1> dL1(nBins, 0.0);
@@ -1150,11 +1148,9 @@ double Bp3likelihood::sadgradient_tuned()
 
       DLd  dL (0.0);
 
-#if 0
       if (OUTPUTMTZ)
         for (int i = 0; i < nCCP4; i++)
           fdata[i] = fCCP4;
-#endif
 
 #if 0
       if (OUTPUTMTZ)
@@ -1492,7 +1488,6 @@ double Bp3likelihood::sadgradient_tuned()
             dldsd     -= ((dbessargdsd   + dcos2dsd  *s.cos + dsin2dsd  *s.sin)*simarg + (dcos1dsd  *s.cos + dsin1dsd  *s.sin))*wprob;
             dldsigh   -= ((dbessargdsigh + dcos2dsigh*s.cos + dsin2dsigh*s.sin)*simarg + (dcos1dsigh*s.cos + dsin1dsigh*s.sin))*wprob;
             dldsfpp   -= ((dbessargdsfpp + dcos2dsfpp*s.cos + dsin2dsfpp*s.sin)*simarg + (dcos1dsfpp*s.cos + dsin1dsfpp*s.sin))*wprob;
-#if 0
             if (prob > SMALLESTD && OUTPUTMTZ)
             {
               const myReal prob1 = log(prob)*s.weight;
@@ -1501,7 +1496,6 @@ double Bp3likelihood::sadgradient_tuned()
               totlogcos2 += prob1*(s.cos*s.cos - s.sin*s.sin);
               totlogsin2 += prob1*TWO*s.cos*s.sin;
             }
-#endif
           }
         }
 
@@ -1536,16 +1530,14 @@ double Bp3likelihood::sadgradient_tuned()
 
           const myReal fom = __sqrt(totcos*totcos + totsin*totsin) / integral;
 
-#if 0
-          if (xtal.Getres(d,r) >= fomreso)
-          {
-            stopfom                += fom;
-            meansdluz              += sd;
-            sdsdluz                += sd*sd;
-            nstop++;
-          }
-#endif
-          /* endif */
+          if (OUTPUTMTZ)
+            if (xtal.Getres(d,r) >= fomreso)
+            {
+              stopfom                += fom;
+              meansdluz              += sd;
+              sdsdluz                += sd*sd;
+              nstop++;
+            }
 
           myReal phib = atan2(totsin, totcos);
           if (crystal.centric)
@@ -1563,7 +1555,6 @@ double Bp3likelihood::sadgradient_tuned()
             anshl_loc[sa]++;
           }
 
-#if 0
           if (OUTPUTMTZ)
           {
             fdata[inc + 2]          = (float) (fom*sf.datap);
@@ -1573,12 +1564,12 @@ double Bp3likelihood::sadgradient_tuned()
             fdata[inc + 6]          = (float) totlogsin;
             fdata[inc + 7]          = (float) totlogcos2;
             fdata[inc + 8]          = (float) totlogsin2;
+            const myReal fpp(mdl.form[mdl.atom[0].nform].fpp[0]);
             const myReal adiff            =  fpp*(-dL.Bp + dL.Bm);
             const myReal bdiff            =  fpp*( dL.Ap - dL.Am);
             fdata[inc + 9]          = (float) __sqrt(adiff*adiff + bdiff*bdiff);
             fdata[inc + 10]         = (float) (atan2(bdiff,adiff)/DEGREEtoRAD);
           }
-#endif
         }
         else
         {
@@ -1592,7 +1583,6 @@ double Bp3likelihood::sadgradient_tuned()
         dLdAm[d][r] = dL.Am;
         dLdBm[d][r] = dL.Bm;
       }
-#if 0
       else if (OUTPUTMTZ && (crystal.usem || crystal.usep))
       {
         double fobs, arg(ZERO);
@@ -1628,9 +1618,7 @@ double Bp3likelihood::sadgradient_tuned()
         fdata[inc + 9]              = (float) ZERO;
         fdata[inc + 10]             = (float) ZERO;
       }
-#endif
 
-#if 0
       if (OUTPUTMTZ && outputhcalc)
       {
         unsigned sa(xtal.bin(d,r)), sb(sa);
@@ -1642,8 +1630,7 @@ double Bp3likelihood::sadgradient_tuned()
         fdata[inc + 12]              = (float) sf.pcalcp/DEGREEtoRAD;
         fdata[inc + 13]              = (float) sf.fcalcp/__sqrt(eps*sig);
       }
-#endif
-#if 0
+#if 1
       if (OUTPUTMTZ)
         CMtz::ccp4_lwrefl(MTZOUT, &fdata[0], &colout[0], fdata.size(), r+1);
 #endif
@@ -1670,8 +1657,6 @@ double Bp3likelihood::sadgradient_tuned()
 
   if (OUTPUTMTZ)
   {
-    assert(0);
-#if 0
     if (nstop)
     {
       double dnstop((double)nstop);
@@ -1691,7 +1676,6 @@ double Bp3likelihood::sadgradient_tuned()
       fclose(pluz);
 
     }
-#endif
 
     CMtz::MtzPut(MTZOUT, " ");
     if (MTZOUT)
@@ -1797,8 +1781,9 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
     int tag1 = Tsad.start("part2::01");
     // Default value for columns to be written out is MNF
 
-    for (int i = 0; i < nCCP4; i++)
-      fdata[i] = fCCP4;
+    if (OUTPUTMTZ)
+      for (int i = 0; i < nCCP4; i++)
+        fdata[i] = fCCP4;
 
 #if 0
     if (OUTPUTMTZ)
@@ -2232,7 +2217,7 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
           dldsfpp                -= ((dbessargdsfpp + dcos2dsfpp*sadcos[i] +
                 dsin2dsfpp*sadsin[i])*simarg +
               (dcos1dsfpp*sadcos[i] + dsin1dsfpp*sadsin[i]))*wprob;
-          if (prob                > SMALLESTD)
+          if (prob                > SMALLESTD && OUTPUTMTZ)
           {
             prob                  = log(prob)*sadweight[i];
             totlogcos            += prob*sadcos[i];
@@ -2287,13 +2272,14 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
 
         double fom                 = sqrt(totcos*totcos + totsin*totsin)/integral;
 
-        if (xtal.Getres(d,r)     >= fomreso)
-        {
-          stopfom                += fom;
-          meansdluz              += sd;
-          sdsdluz                += sd*sd;
-          nstop++;
-        }
+        if (OUTPUTMTZ)
+          if (xtal.Getres(d,r)     >= fomreso)
+          {
+            stopfom                += fom;
+            meansdluz              += sd;
+            sdsdluz                += sd*sd;
+            nstop++;
+          }
 
         double phib               = atan2(totsin, totcos);
         if (xtal.centric[r])
@@ -2394,6 +2380,7 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
       Tsad.stop(tag1);
     }
 
+#if 0
     if (OUTPUTMTZ)
     {      
       if (outputhcalc)
@@ -2409,6 +2396,21 @@ double Bp3likelihood::sadgradient_gold(const bool CHECK, const bool OUTPUTMTZ)
       }
       CMtz::ccp4_lwrefl(MTZOUT, &fdata[0], &colout[0], fdata.size(), r+1);
     }
+#else
+    if (OUTPUTMTZ && outputhcalc)
+    {
+      unsigned sa(xtal.bin(d,r)), sb(sa);
+      double wa(ONE), wb(ZERO);
+      double sig               = wa*xtal.sf[d].sigmah[sa] + wb*xtal.sf[d].sigmah[sb];
+      xtal.binweights(d, r, sa, sb, wa, wb);
+
+      fdata[inc + 11]              = (float) xtal.sf[d].fcalcp[r];
+      fdata[inc + 12]              = (float) xtal.sf[d].pcalcp[r]/DEGREEtoRAD;
+      fdata[inc + 13]              = (float) xtal.sf[d].fcalcp[r]/sqrt(eps*sig);
+    }
+    if (OUTPUTMTZ)
+      CMtz::ccp4_lwrefl(MTZOUT, &fdata[0], &colout[0], fdata.size(), r+1);
+#endif
   }
   Tsad.stop(tagId);
 
