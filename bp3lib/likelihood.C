@@ -664,15 +664,18 @@ void Likelihood::directsfcalc(const bool deriv, const bool calcsigmah)
 
     }
 
-#pragma omp for
+    TabFunc<double> tab;
+
+    vector<double> acalc(xtal.sf.size());
+    vector<double> bcalc(xtal.sf.size());
+    vector<double> anoacalc(xtal.sf.size());
+    vector<double> anobcalc(xtal.sf.size());
+
+#pragma omp for schedule(dynamic) nowait
     for (int r                          = 0; r < (int)xtal.maxselref; r++)
     {
       if (xtal.selected[r])
       {
-        vector<double> acalc(xtal.sf.size());
-        vector<double> bcalc(xtal.sf.size());
-        vector<double> anoacalc(xtal.sf.size());
-        vector<double> anobcalc(xtal.sf.size());
 
         for (unsigned d                      = 0; d < xtal.sf.size(); d++)
         {
@@ -1753,9 +1756,9 @@ bool Likelihood::hermitianinverse(Matrix &reori, Matrix &imori, Matrix &reinv,
 
 bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
 {
-//  return inverse_gold(ori, inv, det);
+  //  return inverse_gold(ori, inv, det);
   const int tagMain = Tinverse.start("Main");
-  
+
   const int n = ori.csize();
   assert(ori.csize() == ori.rsize());
   assert((int)ori.size() == n*n);

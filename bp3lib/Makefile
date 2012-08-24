@@ -19,8 +19,8 @@ ifeq ($(GDB), 1)
 	OFLAGS = -O0 -g
 endif
 	
-OFLAGS  += -funroll-all-loops
-CXXFLAGS = $(OFLAGS) 
+OFLAGS  += -funroll-loops
+CXXFLAGS = $(OFLAGS)  $(OMPFLAGS)
 # -Wstrict-aliasing=2 $(OMPFLAGS)
 
 ifeq ($(SSE), 1)
@@ -43,7 +43,7 @@ endif
 CXXFLAGS += -I$(CCP4)/include -I$(CCP4)/include/ccp4 
 
 SRCPATH = ./
-SRC = crystal.C  gauss.C  input.C  likelihood.C  minimizer.C  misc.C  model.C  pavol.C  sfdata.C
+SRC = crystal.C  gauss.C  input.C  likelihood.C  minimizer.C  misc.C  model.C  pavol.C  sfdata.C tabfunc.C
 OBJ = $(SRC:%.C=%.o) 
 
 TRGT = libbp3
@@ -68,5 +68,7 @@ clean:
 clean_all:
 	/bin/rm -rf *.o $(TRGT).a *~
 
-$(OBJ): bp3_version.h  covmat.h  crystal.h  gauss.h  gaussian.h  input.h  likelihood.h  llhood.h  matrix.h  minimizer.h  misc.h  model.h  sfdata.h  tabfunc.h
+$(OBJ): bp3_version.h  covmat.h  crystal.h  gauss.h  gaussian.h  input.h  likelihood.h  llhood.h  matrix.h  minimizer.h  misc.h  model.h  sfdata.h  
+likelihood.o: tabfunc.h tabfunctable.h
+tabfunc.o: tabfunc.h tabfunctable.h
 

@@ -126,6 +126,8 @@ class Bp3likelihood : public Likelihood
     double uncorrelatedgradient(const bool check, const bool mtz = false);
     double sadfunction(const bool check);
     double sadgradient(const bool check = false, const bool mtz = false);
+    template<bool OUTPUTMTZ, bool CHECK>
+    double sadgradient_tuned();
     double sadgradient_gold(const bool, const bool);
     double madfunction(const bool check);
     double madgradient(const bool check = false, const bool mtz = false);

@@ -419,7 +419,6 @@ bool Minimizer::more()
   stepbest        = ZERO;
   bracket         = false;
 
-  fprintf(stderr, "  >>> maxlineit= %d\n", maxlineit); 
   for (unsigned i = 0; i < maxlineit; i++)
   {
     std::string tag;

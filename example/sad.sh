@@ -2,7 +2,7 @@
 
 set -e
 
-../bp3 HKLIN $CEXAM/tutorial/data/gere_MAD_nat.mtz HKLOUT $CCP4_SCR/gere_MAD_phase.mtz << eof-bp3 
+time ../bp3 HKLIN $CEXAM/tutorial/data/gere_MAD_nat.mtz HKLOUT $CCP4_SCR/gere_MAD_phase.mtz << eof-bp3 
 
 # SAD data on peak wavelength
 

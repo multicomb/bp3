@@ -71,4 +71,5 @@ clean_all:
 
 $(OBJ): bp3input.h bp3likelihood.h 
 $(PROG): bp3lib/libbp3.a
+bp3likelihood.o: bp3lib/tabfunc.h bp3lib/tabfunctable.h
 
