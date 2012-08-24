@@ -1009,7 +1009,7 @@ bool my_inverse_gold(const double in[N][N], double out[N][N], double &det)
 
 double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
 {
-#if 1
+#if 0
   return sadgradient_gold(check, outputmtz);
 #endif
   if (outputmtz)
@@ -1100,8 +1100,10 @@ double Bp3likelihood::sadgradient_tuned()
   }
   Tsad2.stop(tagId);
 
+#if 0
   fprintf(stderr, " <<<<<<<<<< xtal.maxselref= %d  sadweight.size()= %d\n", xtal.maxselref,
       (int)sadweight.size());
+#endif
   tagId = Tsad2.start("part2");
 
 
@@ -1223,8 +1225,12 @@ double Bp3likelihood::sadgradient_tuned()
 
         myReal det4(ONE);
 
+#if 0
+        const bool filter = my_inverse_gold(cov, covinv,det4);
+#else
         const bool filter = my_inverse(cov, covinv,det4) ? 
           my_inverse_gold(cov, covinv, det4) : false;
+#endif
 
         // derivatives of the matrices
         // wrt sdluz
@@ -1745,7 +1751,6 @@ double Bp3likelihood::sadgradient_gold(const bool check, const bool outputmtz)
 
   vector<double> detmodel(xtal.sf[d].nbins, ONE);
 
-  fprintf(stderr, " <<<<<<< d= %d nbins= %d \n", d, xtal.sf[d].nbins);
   int tagId = Tsad.start("part1");
   Matrix recovmodel(2), recovinvmodel(2);
 
@@ -1769,8 +1774,10 @@ double Bp3likelihood::sadgradient_gold(const bool check, const bool outputmtz)
   Tsad.stop(tagId);
 
 
+#if 0
   fprintf(stderr, " <<<<<<<<<< xtal.maxselref= %d  sadweight.size()= %d\n", xtal.maxselref,
       (int)sadweight.size());
+#endif
   tagId = Tsad.start("part2");
   vector<double> exparg(sadweight.size());
   vector<double> besselarg(sadweight.size());

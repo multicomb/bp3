@@ -1756,8 +1756,10 @@ bool Likelihood::hermitianinverse(Matrix &reori, Matrix &imori, Matrix &reinv,
 
 bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
 {
+#if 0
   return inverse_gold(ori, inv, det);
-  const int tagMain = Tinverse.start("Main");
+#endif
+//  const int tagMain = Tinverse.start("Main");
 
   const int n = ori.csize();
   assert(ori.csize() == ori.rsize());
@@ -1770,15 +1772,15 @@ bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
   int lwork = N*N;
   char chU[] = "U";
 
-  int tag = Tinverse.start("DPOTRF");
+//  int tag = Tinverse.start("DPOTRF");
   Matrix inv1(ori);
   dpotrf_(chU, &N, inv1.array(), &N, &errorHandler);
   assert(errorHandler >= 0);
-  Tinverse.stop(tag);
+//  Tinverse.stop(tag);
 
   if (errorHandler > 0)
   {
-    Tinverse.stop(tagMain);
+ //   Tinverse.stop(tagMain);
     return inverse_gold(ori, inv, det);
   }
 
@@ -1789,21 +1791,21 @@ bool Likelihood::inverse(Matrix &ori, Matrix &inv, double &det)
   assert(det > 0.0);
 
 
-  tag = Tinverse.start("DPOTRI");
+//  tag = Tinverse.start("DPOTRI");
   dpotri_(chU, &N, inv1.array(), &N, &errorHandler);
   assert(0 == errorHandler);
   for (unsigned i        = 0; i < ori.rsize(); i++)
     for (unsigned j      = i; j < ori.csize(); j++)
       inv(j,i) = inv(i,j) = inv1(i,j);
-  Tinverse.stop(tag);
+//  Tinverse.stop(tag);
 
-  Tinverse.stop(tagMain);
+ // Tinverse.stop(tagMain);
   return false;
 }
 
 bool Likelihood::inverse_gold(Matrix &ori, Matrix &inv, double &det)
 {
-  const int tagMain = TinverseGold.start("Main");
+  //const int tagMain = TinverseGold.start("Main");
 
   // pseudoinverse for real symmetric matrix
   evectors.resize(ori.size());
@@ -1815,7 +1817,7 @@ bool Likelihood::inverse_gold(Matrix &ori, Matrix &inv, double &det)
   char jobz('V'), uplo('U');
   int n(ori.rsize()), lda(ori.rsize());
 
-  int tag1 = TinverseGold.start("DSYEVD");
+ // int tag1 = TinverseGold.start("DSYEVD");
   FORTRAN_CALL ( DSYEVD, dsyevd,
       (&jobz, &uplo, &n, &evectors[0], &lda, &evalues[0], &lawork[0],
        &lwork, &iwork[0], &liwork, &info),
@@ -1823,9 +1825,9 @@ bool Likelihood::inverse_gold(Matrix &ori, Matrix &inv, double &det)
        &lwork, &iwork[0], &liwork, &info),
       (&jobz, &uplo, &n, &evectors[0], &lda, &evalues[0], &lawork[0], 
        &lwork, &iwork[0], &liwork, &info));
-  TinverseGold.stop(tag1);
+//  TinverseGold.stop(tag1);
 
-  tag1 = TinverseGold.start("loop1");
+  //tag1 = TinverseGold.start("loop1");
   for (unsigned i        = 0; i < ori.rsize(); i++)
     for (unsigned j      = i; j < ori.csize(); j++)
     {
@@ -1843,22 +1845,22 @@ bool Likelihood::inverse_gold(Matrix &ori, Matrix &inv, double &det)
       inv(i,j)           = recompinv;
       inv(j,i)           = recompinv;
     }
-  TinverseGold.stop(tag1);
+//  TinverseGold.stop(tag1);
 
   det                    = ONE;
 
   bool filter(false);
 
-  tag1 = TinverseGold.start("loop2");
+//  tag1 = TinverseGold.start("loop2");
   for (unsigned i        = 0; i < ori.rsize(); i++)
   {
     if (evalues[i]       < MINEIG)
       filter             = true;
     det                 *= (evalues[i] < MINEIG) ? MINEIG : evalues[i];
   }
-  TinverseGold.stop(tag1);
+//  TinverseGold.stop(tag1);
 
-  TinverseGold.stop(tagMain);
+//  TinverseGold.stop(tagMain);
   return filter;  
 }
 
