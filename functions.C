@@ -37,6 +37,7 @@ extern "C"
     
     void spotrf_(char* U, int *N, float* A, int* lda, int* INFO);
     void spotri_(char* U, int *N, float* A, int* lda, int* INFO);
+    void ssyevd_(char*, char*, int*, float*, int *,float*, float*, int*, int*, int*, int*);
 
 }
 
@@ -896,7 +897,7 @@ struct SfLightT
   }
 };
 
-typedef double myReal;
+typedef float myReal;
 
 typedef DLdT <myReal> DLd;
 typedef DLd1T<myReal> DLd1;
@@ -984,6 +985,93 @@ bool my_inverse_gold(const double in[N][N], double out[N][N], double &det)
     for (int j = i; j < N; j++)
     {
       double recompinv = 0.0;
+      for (int k = 0; k < N; k++)
+        if (evalues[k] > MINEIG)
+          recompinv += evectors[k][i]*evectors[k][j] / evalues[k];
+      out[j][i] = out[i][j] = recompinv;
+    }
+
+  det = 1.0;
+
+  bool filter = false;
+
+  for (int i = 0; i < N; i++)
+    if (evalues[i] < MINEIG)
+    {
+      filter  = true;
+      det    *= MINEIG;
+    }
+    else
+      det *= evalues[i];
+
+  return filter;  
+}
+
+  template<int N>
+bool my_inverse(const float in[N][N], float out[N][N], float &det)
+{
+  int errorHandler;
+  int     n = N;
+  int lwork = N*N;
+  char chU[] = "U";
+
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < N; i++)
+      out[j][i] = in[j][i];
+
+  spotrf_(chU, &n, &out[0][0], &n, &errorHandler);
+  assert(errorHandler >= 0);
+
+  if (errorHandler > 0)
+    return true;
+
+  det = 1.0;
+  for (int i = 0; i < N; i++)
+    det *= out[i][i];
+  det *= det;
+  assert(det > 0.0);
+
+
+  spotri_(chU, &n, &out[0][0], &n, &errorHandler);
+  assert(0 == errorHandler);
+  for (int i = 0; i < N; i++)
+    for (int j = i; j < N; j++)
+      out[i][j] = out[j][i];
+      
+  return false;
+}
+
+template<int N>
+bool my_inverse_gold(const float in[N][N], float out[N][N], float &det)
+{
+  // pseudoinverse for real symmetric matrix
+  const int N2 = N*N;
+  float evalues[N];
+  float evectors[N][N];
+
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < N; i++)
+      evectors[j][i] = in[j][i];
+
+  char jobz('V'), uplo('U');
+  int   n = N;
+  int lda = N;
+  const int   LWORK = 1+6*N+2*N*N;
+  const int  LIWORK = 3+5*N;
+
+  float work[ LWORK];
+  int   iwork[LIWORK];
+  int   lwork =  LWORK;
+  int  liwork = LIWORK;
+  int info;
+
+  ssyevd_(&jobz, &uplo, &n, &evectors[0][0], &lda, &evalues[0], &work[0],
+       &lwork, &iwork[0], &liwork, &info);
+
+  for (int i = 0; i < N; i++)
+    for (int j = i; j < N; j++)
+    {
+      float recompinv = 0.0;
       for (int k = 0; k < N; k++)
         if (evalues[k] > MINEIG)
           recompinv += evectors[k][i]*evectors[k][j] / evalues[k];
@@ -1601,8 +1689,8 @@ double Bp3likelihood::sadgradient_tuned()
       }
       else if (OUTPUTMTZ && (crystal.usem || crystal.usep))
       {
-        double fobs, arg(ZERO);
-        double var                  = std::max(eps*(sigman - sd*sd*sigmah), EPSILON);
+        myReal fobs, arg(ZERO);
+        myReal var                  = std::max((myReal)eps*(sigman - sd*sd*sigmah),(myReal)EPSILON);
 
         if (crystal.usep)
         {
@@ -1617,8 +1705,8 @@ double Bp3likelihood::sadgradient_tuned()
           arg                       = TWO*fobs*sd*sf.fcalcm/var;
         }
 
-        const double phib                 = sf.pcalcp;
-        const double fom                  = tab.Sim(arg);
+        const myReal phib                 = sf.pcalcp;
+        const myReal fom                  = tab.Sim(arg);
 
         afom_loc [sa]                    += fom;
         anshl_loc[sa]++;
@@ -1626,7 +1714,7 @@ double Bp3likelihood::sadgradient_tuned()
         fdata[inc + 2]              = (float) fom*fobs;
         fdata[inc + 3]              = (float) (phib/DEGREEtoRAD);
         fdata[inc + 4]              = (float) fom;
-        double temp                 = atanh(fom);
+        myReal temp                 = atanh(fom);
         fdata[inc + 5]              = (float) temp*tab.Cos(phib);
         fdata[inc + 6]              = (float) temp*tab.Sin_charged(phib);
         fdata[inc + 7]              = (float) ZERO;
@@ -1639,7 +1727,7 @@ double Bp3likelihood::sadgradient_tuned()
       {
         unsigned sa(xtal.bin(d,r)), sb(sa);
         double wa(ONE), wb(ZERO);
-        const double sig               = wa*xtal.sf[d].sigmah[sa] + wb*xtal.sf[d].sigmah[sb];
+        const myReal sig               = wa*xtal.sf[d].sigmah[sa] + wb*xtal.sf[d].sigmah[sb];
         xtal.binweights(d, r, sa, sb, wa, wb);
 
         fdata[inc + 11]              = (float) sf.fcalcp;
