@@ -897,7 +897,7 @@ struct SfLightT
   }
 };
 
-typedef float myReal;
+typedef double myReal;
 
 typedef DLdT <myReal> DLd;
 typedef DLd1T<myReal> DLd1;
