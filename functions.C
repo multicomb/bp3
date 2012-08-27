@@ -1165,9 +1165,11 @@ double Bp3likelihood::sadgradient_tuned()
           fdata[i] = fCCP4;
 
 #if 0
-#pragma omp critical
       if (OUTPUTMTZ)
+      {
+#pragma omp critical
         storeinitialcolumns(MTZIN, fdata, inc, r);
+      }
 #endif
 
 
@@ -1645,9 +1647,11 @@ double Bp3likelihood::sadgradient_tuned()
         fdata[inc + 13]              = (float) sf.fcalcp/__sqrt(eps*sig);
       }
 #if 0
-#pragma omp critical
       if (OUTPUTMTZ)
+      {
+#pragma omp critical
         CMtz::ccp4_lwrefl(MTZOUT, &fdata[0], &colout[0], fdata.size(), r+1);
+      }
 #endif
     }
 
