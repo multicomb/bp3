@@ -951,11 +951,6 @@ REAL inverse1(const REAL in[N][N], REAL out[N][N])
     for (int i = j+1; i < N; i++)
       out[j][i] = 0.0;
   
-  REAL L[N][N];
-  for (int j = 0; j < N; j++)
-    for (int i = 0; i < N; i++)
-      L[j][i] = out[j][i];
-
   /* determinant */
   
   REAL det = 1.0;
@@ -1002,6 +997,7 @@ REAL inverse1(const REAL in[N][N], REAL out[N][N])
 
   /* compute inverse by multiplying inverse of L and its tranpose */
 
+#if 1
   REAL inv [N][N] = {0.0};
   REAL invT[N][N] = {0.0};
   for (int j = 0; j < N; j++)
@@ -1009,31 +1005,56 @@ REAL inverse1(const REAL in[N][N], REAL out[N][N])
       inv[j][i] = invT[i][j] = out[j][i];
 
   for (int j = 0; j < N; j++)
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < j; i++)
     {
       REAL sum = 0;
       for (int k = 0; k < N; k++)
-        sum += invT[j][k]*inv[k][i];
-      out[j][i] = sum;
+        sum += inv[k][j]*inv[k][i];
+      out[j][i] = out[i][j] = sum;
     }
+#else
+  REAL inv [N][N];
+  REAL invT[N][N];
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < j; i++)
+      inv[j][i] = invT[i][j] = out[j][i];
+
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < j; i++)
+    {
+      REAL res = 0.0;
+      for (int k = 0; k < i; k++)
+        res += inv[i][k]*invT[k][j];
+      out[i][j] = out[j][i] = res;
+    }
+#if 0
+  for (int j = 0; j < N; j++)
+  {
+    REAL res = 0.0;
+    for (int k = 0; k < j; k++)
+      res += out[j][k]*out[j][k];
+    out[j][j] = res;
+    for (int i = 0; i < j-1; i++)
+      out[j][i] = out[i][j];
+  }
+#endif
+#endif
 
 
+#if 1
   for (int j = 0; j < N; j++)
     for (int i = 0; i < N; i++)
     {
       REAL sum = 0;
       for (int k = 0; k < N; k++)
         sum += in[j][k]*out[k][i];
-#if 0
-      if (!(sum == 1.0))
-      {
-      }
-#else
       fprintf(stderr ,"i=%d j= %d: sum= %g\n", i,j, sum);
-#endif
-
-      assert(std::abs(sum-1.0) < 1.0e-12 || std::abs(sum) < 1.0e-12);
+      if (i == j)
+        assert(std::abs(sum-1.0) < 1.0e-12);
+      else 
+        assert(std::abs(sum) < 1.0e-12);
     }
+#endif
 #if 0
   for (int i = 0; i < j-1; i++)
   {
