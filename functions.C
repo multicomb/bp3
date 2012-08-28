@@ -923,10 +923,10 @@ void my_matrixprod(REAL T[N][N], const REAL A[N][N], const REAL C[N][N])
 template<int N, typename REAL>
 REAL inverse_cholesky(const REAL in[N][N], REAL out[N][N])
 {
-  /* extract lower triangular from the in */
+  /* extract lower triangular from the input matrix */
 
   for (int j = 0; j < N; j++)
-    for (int i = j; i < N; i++)
+    for (int i = 0; i < j; i++)
       out[j][i] = out[i][j] = in[j][i];
 
   /* Cholesky factorization, stored in the lower triangle */
