@@ -22,7 +22,7 @@
 #include "bp3likelihood.h"
 #include "mytimer.h"
 #include <cmath>
-extern TimerT Tsad, Tsad1, Tsad2;
+extern TimerT Tsad, Tsad1, Tsad2, TinverseGold;
 extern unsigned long long filter_cnt, filter_cnt_all;
 #include "FArray.h"
 
@@ -920,13 +920,147 @@ void my_matrixprod(REAL T[N][N], const REAL A[N][N], const REAL C[N][N])
     }
 }
 
-template<int N>
+template<int N, typename REAL>
+REAL inverse1(const REAL in[N][N], REAL out[N][N])
+{
+
+  /* extract lower triangular from the in */
+
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < N; i++)
+    {
+      out[j][i] = in[j][i];
+      assert(in[i][j] == in[j][i]);
+    }
+
+  /* Cholesky factorization, stored in the lower triangle */
+
+  for (int k = 0; k < N; k++)
+  {
+    if (out[k][k] <= 0) return REAL(0.0);  /* matrix is not positive definite, return 0 */
+    out[k][k] = __sqrt(out[k][k]);
+    const REAL ainv = REAL(1.0)/out[k][k];
+    for (int i = k+1; i < N; i++)
+      out[i][k] *= ainv;
+    for (int j = k+1; j < N; j++)
+      for (int i = j; i < N; i++)
+        out[i][j] -= out[i][k]*out[j][k];
+  }
+
+  for (int j = 0; j < N; j++)
+    for (int i = j+1; i < N; i++)
+      out[j][i] = 0.0;
+  
+  REAL L[N][N];
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < N; i++)
+      L[j][i] = out[j][i];
+
+  /* determinant */
+  
+  REAL det = 1.0;
+  for (int i = 0; i < N; i++)
+    det *= out[i][i];
+  det *= det;
+  assert(det > 0.0);
+
+  /* invert lower triangular matrix */
+
+
+#if 0
+  for (int k = 0; k < N; k++)
+  {
+    out[k][k] = REAL(1.0)/out[k][k];
+    for (int i = k+1; i < N; i++)
+    {
+      REAL res = 0.0;
+      for (int j = k; j < i; j++)
+        res += out[i][j]*out[j][k];
+      out[i][k] = -res/out[i][i];
+    }
+  }
+#if 0
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < j-1; i++)
+      out[j][i] *= out[j][j];
+#endif
+#else
+
+  for (int k = 0; k < N; k++)
+    out[k][k] = REAL(1.0)/out[k][k];
+
+  for (int i = 1; i < N; i++)
+    for (int j = 0; j < i; j++)
+    {
+      REAL sum = 0.0;
+      for (int k = j; k < i; k++)
+        sum += out[i][k] * out[k][j];
+      out[i][j] = -out[i][i]*sum;
+    }
+#endif
+
+
+  /* compute inverse by multiplying inverse of L and its tranpose */
+
+  REAL inv [N][N] = {0.0};
+  REAL invT[N][N] = {0.0};
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < N; i++)
+      inv[j][i] = invT[i][j] = out[j][i];
+
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < N; i++)
+    {
+      REAL sum = 0;
+      for (int k = 0; k < N; k++)
+        sum += invT[j][k]*inv[k][i];
+      out[j][i] = sum;
+    }
+
+
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < N; i++)
+    {
+      REAL sum = 0;
+      for (int k = 0; k < N; k++)
+        sum += in[j][k]*out[k][i];
+#if 0
+      if (!(sum == 1.0))
+      {
+      }
+#else
+      fprintf(stderr ,"i=%d j= %d: sum= %g\n", i,j, sum);
+#endif
+
+      assert(std::abs(sum-1.0) < 1.0e-12 || std::abs(sum) < 1.0e-12);
+    }
+#if 0
+  for (int i = 0; i < j-1; i++)
+  {
+    REAL res = 0.0;
+    for (int k = 0; k < i; k++)
+      res += out[i][k]*out[j][k];
+    out[i][j] = res;
+  }
+  for (int j = 0; j < N; j++)
+  {
+    out[j][j] *= out[j][j];
+    for (int i = 0; i < j-1; i++)
+      out[j][i] = out[i][j];
+  }
+#endif
+
+
+  return det;
+}
+
+  template<int N>
 bool my_inverse(const double in[N][N], double out[N][N], double &det)
 {
   int errorHandler;
   int     n = N;
   int lwork = N*N;
-  char chU[] = "U";
+  char chU[] = "L";
 
   for (int j = 0; j < N; j++)
     for (int i = 0; i < N; i++)
@@ -950,13 +1084,14 @@ bool my_inverse(const double in[N][N], double out[N][N], double &det)
   for (int i = 0; i < N; i++)
     for (int j = i; j < N; j++)
       out[i][j] = out[j][i];
-      
+
   return false;
 }
 
-template<int N>
+  template<int N>
 bool my_inverse_gold(const double in[N][N], double out[N][N], double &det)
 {
+  const int tag1 = TinverseGold.start("Main");
   // pseudoinverse for real symmetric matrix
   const int N2 = N*N;
   double evalues[N];
@@ -979,7 +1114,7 @@ bool my_inverse_gold(const double in[N][N], double out[N][N], double &det)
   int info;
 
   dsyevd_(&jobz, &uplo, &n, &evectors[0][0], &lda, &evalues[0], &work[0],
-       &lwork, &iwork[0], &liwork, &info);
+      &lwork, &iwork[0], &liwork, &info);
 
   for (int i = 0; i < N; i++)
     for (int j = i; j < N; j++)
@@ -1004,6 +1139,7 @@ bool my_inverse_gold(const double in[N][N], double out[N][N], double &det)
     else
       det *= evalues[i];
 
+  TinverseGold.stop(tag1);
   return filter;  
 }
 
@@ -1037,11 +1173,11 @@ bool my_inverse(const float in[N][N], float out[N][N], float &det)
   for (int i = 0; i < N; i++)
     for (int j = i; j < N; j++)
       out[i][j] = out[j][i];
-      
+
   return false;
 }
 
-template<int N>
+  template<int N>
 bool my_inverse_gold(const float in[N][N], float out[N][N], float &det)
 {
   // pseudoinverse for real symmetric matrix
@@ -1066,7 +1202,7 @@ bool my_inverse_gold(const float in[N][N], float out[N][N], float &det)
   int info;
 
   ssyevd_(&jobz, &uplo, &n, &evectors[0][0], &lda, &evalues[0], &work[0],
-       &lwork, &iwork[0], &liwork, &info);
+      &lwork, &iwork[0], &liwork, &info);
 
   for (int i = 0; i < N; i++)
     for (int j = i; j < N; j++)
@@ -1116,7 +1252,7 @@ double Bp3likelihood::sadgradient(const bool check, const bool outputmtz)
   }
 }
 
-template<bool OUTPUTMTZ, bool CHECK>
+  template<bool OUTPUTMTZ, bool CHECK>
 double Bp3likelihood::sadgradient_tuned()
 {
   assert(!interpolate);
@@ -1129,7 +1265,7 @@ double Bp3likelihood::sadgradient_tuned()
   myReal stopfom(ZERO), meansdluz(ZERO), sdsdluz(ZERO);
   if (CHECK)
     xtal.Setselected( (OUTPUTMTZ ? "PHASE" : "REFINE" ) );
-  
+
   CMtz::MTZ *MTZOUT(NULL),  *MTZIN(NULL);
 
   if (OUTPUTMTZ)
@@ -1155,7 +1291,7 @@ double Bp3likelihood::sadgradient_tuned()
   const int inc   = (allin) ? colin.size() : 3;
   const int nCCP4 = outputhcalc ? 14+inc : 11+inc;
   const int fCCP4 = CCP4::ccp4_nan().f;
-            
+
 
   const int tagMain = Tsad2.start("Main");
   // Calculates likelihood for a sad data set (d=0) assuming correlated errors.
@@ -1183,8 +1319,8 @@ double Bp3likelihood::sadgradient_tuned()
       xtal.sf[d].sigmah[s] - sumfpp[d][d][s],
       xtal.sf[d].sigmah[s]};
 
-    covmodel[s].assign(model);
-    inverse2by2(covmodel[s], covinvmodel[s], detmodel[s]);
+      covmodel[s].assign(model);
+      inverse2by2(covmodel[s], covinvmodel[s], detmodel[s]);
   }
   Tsad2.stop(tagId);
 
@@ -1208,9 +1344,9 @@ double Bp3likelihood::sadgradient_tuned()
 
   const int nRefl = xtal.maxselref;
   crystalVec.reserve(nRefl);
-       sfVec.reserve(nRefl);
+  sfVec.reserve(nRefl);
 
- 
+
   for (int r = 0; r < nRefl; r++)
   {
     crystalVec.push_back( CrystalLight(
@@ -1316,10 +1452,19 @@ double Bp3likelihood::sadgradient_tuned()
         myReal det4(ONE);
 
 #if 0
+#if 0
         const bool filter = my_inverse_gold(cov, covinv,det4);
 #else
         const bool filter = my_inverse(cov, covinv,det4) ? 
           my_inverse_gold(cov, covinv, det4) : false;
+#endif
+#else
+        det4 = inverse1(cov, covinv);
+        bool filter = false;
+        if (det4 == 0.0)
+          filter = my_inverse_gold(cov, covinv, det4);
+
+        //const bool filter = det4 == 0.0 ? my_inverse_gold(cov, covinv, det4) : false;
 #endif
 
         // derivatives of the matrices
