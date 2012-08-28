@@ -22,7 +22,7 @@
 #include "bp3likelihood.h"
 #include "mytimer.h"
 #include <cmath>
-extern TimerT Tsad, Tsad1, Tsad2, TinverseGold;
+extern TimerT Tsad, Tsad1, Tsad2;
 extern unsigned long long filter_cnt, filter_cnt_all;
 #include "FArray.h"
 
@@ -921,17 +921,13 @@ void my_matrixprod(REAL T[N][N], const REAL A[N][N], const REAL C[N][N])
 }
 
 template<int N, typename REAL>
-REAL inverse1(const REAL in[N][N], REAL out[N][N])
+REAL inverse_cholesky(const REAL in[N][N], REAL out[N][N])
 {
-
   /* extract lower triangular from the in */
 
   for (int j = 0; j < N; j++)
-    for (int i = 0; i < N; i++)
-    {
-      out[j][i] = in[j][i];
-      assert(in[i][j] == in[j][i]);
-    }
+    for (int i = j; i < N; i++)
+      out[j][i] = out[i][j] = in[j][i];
 
   /* Cholesky factorization, stored in the lower triangle */
 
@@ -961,26 +957,6 @@ REAL inverse1(const REAL in[N][N], REAL out[N][N])
 
   /* invert lower triangular matrix */
 
-
-#if 0
-  for (int k = 0; k < N; k++)
-  {
-    out[k][k] = REAL(1.0)/out[k][k];
-    for (int i = k+1; i < N; i++)
-    {
-      REAL res = 0.0;
-      for (int j = k; j < i; j++)
-        res += out[i][j]*out[j][k];
-      out[i][k] = -res/out[i][i];
-    }
-  }
-#if 0
-  for (int j = 0; j < N; j++)
-    for (int i = 0; i < j-1; i++)
-      out[j][i] *= out[j][j];
-#endif
-#else
-
   for (int k = 0; k < N; k++)
     out[k][k] = REAL(1.0)/out[k][k];
 
@@ -992,85 +968,21 @@ REAL inverse1(const REAL in[N][N], REAL out[N][N])
         sum += out[i][k] * out[k][j];
       out[i][j] = -out[i][i]*sum;
     }
-#endif
 
-
-  /* compute inverse by multiplying inverse of L and its tranpose */
-
-#if 1
-  REAL inv [N][N] = {0.0};
-  REAL invT[N][N] = {0.0};
-  for (int j = 0; j < N; j++)
-    for (int i = 0; i < N; i++)
-      inv[j][i] = invT[i][j] = out[j][i];
+  /* compute inverse by multiplying inverse of L and its transpose */
 
   for (int j = 0; j < N; j++)
-    for (int i = 0; i < j; i++)
+    for (int i = j; i < N; i++)
     {
       REAL sum = 0;
-      for (int k = 0; k < N; k++)
-        sum += inv[k][j]*inv[k][i];
-      out[j][i] = out[i][j] = sum;
+      for (int k = i; k < N; k++)
+        sum += out[k][j]*out[k][i];
+      out[j][i] = sum;
     }
-#else
-  REAL inv [N][N];
-  REAL invT[N][N];
-  for (int j = 0; j < N; j++)
-    for (int i = 0; i < j; i++)
-      inv[j][i] = invT[i][j] = out[j][i];
 
   for (int j = 0; j < N; j++)
-    for (int i = 0; i < j; i++)
-    {
-      REAL res = 0.0;
-      for (int k = 0; k < i; k++)
-        res += inv[i][k]*invT[k][j];
-      out[i][j] = out[j][i] = res;
-    }
-#if 0
-  for (int j = 0; j < N; j++)
-  {
-    REAL res = 0.0;
-    for (int k = 0; k < j; k++)
-      res += out[j][k]*out[j][k];
-    out[j][j] = res;
-    for (int i = 0; i < j-1; i++)
-      out[j][i] = out[i][j];
-  }
-#endif
-#endif
-
-
-#if 1
-  for (int j = 0; j < N; j++)
-    for (int i = 0; i < N; i++)
-    {
-      REAL sum = 0;
-      for (int k = 0; k < N; k++)
-        sum += in[j][k]*out[k][i];
-      fprintf(stderr ,"i=%d j= %d: sum= %g\n", i,j, sum);
-      if (i == j)
-        assert(std::abs(sum-1.0) < 1.0e-12);
-      else 
-        assert(std::abs(sum) < 1.0e-12);
-    }
-#endif
-#if 0
-  for (int i = 0; i < j-1; i++)
-  {
-    REAL res = 0.0;
-    for (int k = 0; k < i; k++)
-      res += out[i][k]*out[j][k];
-    out[i][j] = res;
-  }
-  for (int j = 0; j < N; j++)
-  {
-    out[j][j] *= out[j][j];
-    for (int i = 0; i < j-1; i++)
-      out[j][i] = out[i][j];
-  }
-#endif
-
+    for (int i = j+1; i < N; i++)
+      out[i][j] = out[j][i];
 
   return det;
 }
@@ -1112,7 +1024,6 @@ bool my_inverse(const double in[N][N], double out[N][N], double &det)
   template<int N>
 bool my_inverse_gold(const double in[N][N], double out[N][N], double &det)
 {
-  const int tag1 = TinverseGold.start("Main");
   // pseudoinverse for real symmetric matrix
   const int N2 = N*N;
   double evalues[N];
@@ -1160,7 +1071,6 @@ bool my_inverse_gold(const double in[N][N], double out[N][N], double &det)
     else
       det *= evalues[i];
 
-  TinverseGold.stop(tag1);
   return filter;  
 }
 
@@ -1472,7 +1382,7 @@ double Bp3likelihood::sadgradient_tuned()
 
         myReal det4(ONE);
 
-#if 0
+#if 0  /* this will use LAPACK based cholesky factorization */
 #if 0
         const bool filter = my_inverse_gold(cov, covinv,det4);
 #else
@@ -1480,12 +1390,10 @@ double Bp3likelihood::sadgradient_tuned()
           my_inverse_gold(cov, covinv, det4) : false;
 #endif
 #else
-        det4 = inverse1(cov, covinv);
+        det4 = inverse_cholesky(cov, covinv);  /* template and vector-ready */
         bool filter = false;
         if (det4 == 0.0)
           filter = my_inverse_gold(cov, covinv, det4);
-
-        //const bool filter = det4 == 0.0 ? my_inverse_gold(cov, covinv, det4) : false;
 #endif
 
         // derivatives of the matrices
