@@ -357,6 +357,12 @@ int main(int argc, char *argv[])
   const bool fp32 = argc > 2;
   fprintf(stderr, " Using %s precision \n", fp32 ? "SINGLE" : "DOUBLE" );
 
+  /* warm-up phase */
+    if (fp32)  do_test< float>(8, nrep);
+    else       do_test<double>(8, nrep);
+
+
+
   for (int n = 4; n <= 32; n++)
   {
     fprintf(stderr, "Matrix size= %d x %d \n", n,n);
