@@ -289,12 +289,14 @@ void test(const int nrep)
 
 
   double t0 = get_wtime();
+#pragma omp parallel for firstprivate(in) private(out)
   for (int r = 0; r < nrep; r++)
     assert(inverse_cholesky(in, out) > 0);
   const double dt_custom = get_wtime() - t0;
   fprintf(stderr, " custom inverse= %g sec \n", dt_custom);
 
   t0 = get_wtime();
+#pragma omp parallel for firstprivate(in) private(out, fdum)
   for (int r = 0; r < nrep; r++)
     assert(my_inverse(in, out, fdum) == false);
   const double dt_lapack = get_wtime() - t0;
