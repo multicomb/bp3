@@ -93,7 +93,6 @@ bool my_inverse(const double in[N][N], double out[N][N], double &det)
 {
   int errorHandler;
   int     n = N;
-  int lwork = N*N;
   char chU[] = "L";
 
   for (int j = 0; j < N; j++)
@@ -127,7 +126,6 @@ bool my_inverse(const float in[N][N], float out[N][N], float &det)
 {
   int errorHandler;
   int     n = N;
-  int lwork = N*N;
   char chU[] = "U";
 
   for (int j = 0; j < N; j++)
