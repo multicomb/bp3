@@ -313,35 +313,35 @@ void do_test(const int n, const int nrep)
 {
   switch(n)
   { 
-    case  4:  test< 4, float>(nrep); break;
-    case  5:  test< 5, float>(nrep); break;
-    case  6:  test< 6, float>(nrep); break;
-    case  7:  test< 7, float>(nrep); break;
-    case  8:  test< 8, float>(nrep); break;
-    case  9:  test< 9, float>(nrep); break;
-    case 10:  test<10, float>(nrep); break;
-    case 11:  test<11, float>(nrep); break;
-    case 12:  test<12, float>(nrep); break;
-    case 13:  test<13, float>(nrep); break;
-    case 14:  test<14, float>(nrep); break;
-    case 15:  test<15, float>(nrep); break;
-    case 16:  test<16, float>(nrep); break;
-    case 17:  test<17, float>(nrep); break;
-    case 18:  test<18, float>(nrep); break;
-    case 19:  test<19, float>(nrep); break;
-    case 20:  test<20, float>(nrep); break;
-    case 21:  test<21, float>(nrep); break;
-    case 22:  test<22, float>(nrep); break;
-    case 23:  test<23, float>(nrep); break;
-    case 24:  test<24, float>(nrep); break;
-    case 25:  test<25, float>(nrep); break;
-    case 26:  test<26, float>(nrep); break;
-    case 27:  test<27, float>(nrep); break;
-    case 28:  test<28, float>(nrep); break;
-    case 29:  test<29, float>(nrep); break;
-    case 30:  test<30, float>(nrep); break;
-    case 31:  test<31, float>(nrep); break;
-    case 32:  test<32, float>(nrep); break;
+    case  4:  test< 4, REAL>(nrep); break;
+    case  5:  test< 5, REAL>(nrep); break;
+    case  6:  test< 6, REAL>(nrep); break;
+    case  7:  test< 7, REAL>(nrep); break;
+    case  8:  test< 8, REAL>(nrep); break;
+    case  9:  test< 9, REAL>(nrep); break;
+    case 10:  test<10, REAL>(nrep); break;
+    case 11:  test<11, REAL>(nrep); break;
+    case 12:  test<12, REAL>(nrep); break;
+    case 13:  test<13, REAL>(nrep); break;
+    case 14:  test<14, REAL>(nrep); break;
+    case 15:  test<15, REAL>(nrep); break;
+    case 16:  test<16, REAL>(nrep); break;
+    case 17:  test<17, REAL>(nrep); break;
+    case 18:  test<18, REAL>(nrep); break;
+    case 19:  test<19, REAL>(nrep); break;
+    case 20:  test<20, REAL>(nrep); break;
+    case 21:  test<21, REAL>(nrep); break;
+    case 22:  test<22, REAL>(nrep); break;
+    case 23:  test<23, REAL>(nrep); break;
+    case 24:  test<24, REAL>(nrep); break;
+    case 25:  test<25, REAL>(nrep); break;
+    case 26:  test<26, REAL>(nrep); break;
+    case 27:  test<27, REAL>(nrep); break;
+    case 28:  test<28, REAL>(nrep); break;
+    case 29:  test<29, REAL>(nrep); break;
+    case 30:  test<30, REAL>(nrep); break;
+    case 31:  test<31, REAL>(nrep); break;
+    case 32:  test<32, REAL>(nrep); break;
     default: assert(0);
   }
 }
@@ -358,8 +358,8 @@ int main(int argc, char *argv[])
   fprintf(stderr, " Using %s precision \n", fp32 ? "SINGLE" : "DOUBLE" );
 
   /* warm-up phase */
-    if (fp32)  do_test< float>(8, nrep);
-    else       do_test<double>(8, nrep);
+  if (fp32)  do_test< float>(8, nrep);
+  else       do_test<double>(8, nrep);
 
 
 
@@ -369,6 +369,10 @@ int main(int argc, char *argv[])
     if (fp32)  do_test< float>(n, nrep);
     else       do_test<double>(n, nrep);
   }
+
+  const int N = 64;
+  if (fp32) test<N, float>(nrep);
+  else      test<N, double>(nrep);
 
   return 0;
 }
